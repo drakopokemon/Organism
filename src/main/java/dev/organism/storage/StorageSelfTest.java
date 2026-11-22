@@ -35,7 +35,11 @@ public final class StorageSelfTest {
         for (int i = 1; i <= n; i++) {
             String id = "10.0.0." + i + ":7100";
             var m = new Membership(id, seed + i, net, (t, node, f, to, inc) -> {});
-            var h = new StorageHost(m, req -> net.send(id, req));
+            var h = new StorageHost(m, req -> {
+                for (var to : net.nodes.keySet()) {
+                    if (!to.equals(id)) net.send(to, req);
+                }
+            });
             net.nodes.put(id, m);
             net.hosts.put(id, h);
         }
