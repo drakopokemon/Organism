@@ -90,16 +90,10 @@ public final class Membership {
             }
             case Wire.Sync s -> {
                 for (var m : s.members()) merge(m.node(), m.incarnation(), m.status());
+                if (s.facts() != null) acceptFacts(s.facts());
                 if (s.pull()) sendSync(s.from(), false);
             }
-            case Wire.NodeFacts f -> {
-                aliveEvidence(f.node(), f.incarnation(), false);
-                var e = table.get(f.node());
-                if (e != null && (e.facts == null
-                        || f.incarnation() > e.facts.incarnation()
-                        || (f.incarnation() == e.facts.incarnation() && f.seq() > e.facts.seq())))
-                    e.facts = f;
-            }
+            case Wire.NodeFacts f -> acceptFacts(f);
         }
         flush();
     }
@@ -154,14 +148,16 @@ public final class Membership {
         String p = pick(peers(Wire.Status.DEAD));   // и с DEAD тоже — шанс на refute вернувшемуся
         if (p == null) return;
         sendSync(p, true);
-        if (myFacts != null) send(p, myFacts);
     }
 
     private void sendSync(String to, boolean pull) {
         var members = new ArrayList<Wire.Member>();
         table.forEach((k, v) -> members.add(new Wire.Member(k, v.inc, v.st)));
-        for (int i = 0; i < members.size(); i += 40)
-            send(to, new Wire.Sync(self, pull, List.copyOf(members.subList(i, Math.min(i + 40, members.size())))));
+        for (int i = 0; i < members.size(); i += 40) {
+            var chunk = List.copyOf(members.subList(i, Math.min(i + 40, members.size())));
+            // facts едут с первым чанком каждого Sync — гарантия доставки за O(log N) периодов
+            send(to, new Wire.Sync(self, pull, chunk, i == 0 ? myFacts : null));
+        }
     }
 
     private int suspicionTicks() { return Math.max(2, (int) Math.ceil(Math.log10(table.size() + 1))); }
@@ -196,6 +192,15 @@ public final class Membership {
         e.inc = incarnation; e.st = Wire.Status.ALIVE; e.suspLeft = 0;
         listener.onChange(tick, self, old, Wire.Status.ALIVE, incarnation);
         for (var p : pickK(peers(Wire.Status.DEAD), 3)) sendSync(p, false);
+    }
+
+    private void acceptFacts(Wire.NodeFacts f) {
+        aliveEvidence(f.node(), f.incarnation(), false);
+        var e = table.get(f.node());
+        if (e != null && (e.facts == null
+                || f.incarnation() > e.facts.incarnation()
+                || (f.incarnation() == e.facts.incarnation() && f.seq() > e.facts.seq())))
+            e.facts = f;
     }
 
     private void aliveEvidence(String node, int inc, boolean direct) {
