@@ -20,7 +20,7 @@ public final class Genome {
         return new Genome(
             List.of(new LatencyObjective(50.0), new CostObjective(300.0)),
             List.of(new RegionConstraint("eu-west")),
-            List.of(new ProcessingCapability(), new ImmuneCapability()),
+            List.of(new ProcessingCapability(1, 5), new ImmuneCapability(true)),
             new MutationPolicy(10.0, 1.0, 100.0, 500, 50, 2000, 64, 64, 1024, 50.0, 100.0, 2000.0)
         );
     }
@@ -48,10 +48,10 @@ public final class Genome {
     public sealed interface Capability permits ProcessingCapability, ImmuneCapability {
         String type();
     }
-    public record ProcessingCapability() implements Capability {
+    public record ProcessingCapability(int minInstances, int maxInstances) implements Capability {
         @Override public String type() { return "processing"; }
     }
-    public record ImmuneCapability() implements Capability {
+    public record ImmuneCapability(boolean enabled) implements Capability {
         @Override public String type() { return "immune"; }
     }
 
