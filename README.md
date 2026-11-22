@@ -61,6 +61,12 @@ Genome (sealed Objective / Constraint / Gene)        ← правила игры
 * Ручной режим заваливал человека десятками предложений: очередь ограничена 6, добавлено «Approve all / Deny all».
 * `run.sh` падал при нестандартном выводе `javac`; теперь работает и с JRE+модулем `jdk.compiler`.
 
+
+## M4: Production Readiness (Edge & Chaos)
+* **Disk Persistence (WAL):** `StorageHost` теперь пишет все мутации шардов в Write-Ahead Log (`data/wal/shard-N.wal`) через `FileChannel` с `force(false)`. При рестарте узла состояние мгновенно восстанавливается из WAL без полного anti-entropy sync с пиров.
+* **Gossip Auth (HMAC-SHA256):** Все UDP-датаграммы `Wire` оборачиваются в `WireCodec` с MAC-подписью. Это защищает edge-флот от инжекта фейковых `ReplicateRequest` и `NodeFacts` без overhead полноценного mTLS/DTLS handshake.
+* **Chaos CI:** В `.github/workflows/ci.yml` добавлен шаг `chaos.sh`, который поднимает 3 узла, эмулирует сетевой partition через `SIGSTOP`, и проверяет, что gossip и Storage восстанавливают консистентность после `SIGCONT`.
+
 ## Честно о границах
 * Это **симуляция среды** (очередная модель + gossip + диски в процессе): эволюция видит только телеметрию, но настоящих сокетов между узлами нет. Реален только Symbiont. Следующий шаг — `Substrate` поверх реальных узлов (HTTP/gRPC gossip), `ProcessingCell` → нативный агент.
 * Слой данных моделирует репликацию и отказоустойчивость (версии, лаг, потери), но не хранит реальные ключи/значения.
