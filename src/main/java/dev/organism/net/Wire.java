@@ -82,6 +82,15 @@ public sealed interface Wire {
             b.put(data);
             return trim(b);
         }
+
+        @Override public boolean equals(Object o) {
+            if (!(o instanceof ReplicateRequest r)) return false;
+            return shard == r.shard && fromNode.equals(r.fromNode) && version == r.version
+                    && Arrays.equals(data, r.data);
+        }
+        @Override public int hashCode() {
+            return Objects.hash(shard, fromNode, version, Arrays.hashCode(data));
+        }
     }
 
     static Wire decode(byte[] raw, int len) {
