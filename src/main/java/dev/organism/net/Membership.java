@@ -90,6 +90,7 @@ public final class Membership {
             }
             case Wire.NodeFacts f -> acceptFacts(f);
             case Wire.BudRequest r -> listener.onBudReq(tick, r.from(), r.load());
+            case Wire.ReplicateRequest r -> { /* handled by TissueKernel, not Membership */ }
         }
         flush();
     }
