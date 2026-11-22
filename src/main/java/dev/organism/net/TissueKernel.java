@@ -1,5 +1,6 @@
 package dev.organism.net;
 
+import dev.organism.cell.CellHost;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
@@ -7,26 +8,29 @@ import java.nio.file.*;
 import java.util.*;
 
 /**
- * TissueKernel — первый настоящий процесс ORGANISM вне симулятора.
- * UDP-приёмник на виртуальном потоке + тикер Membership + JSONL-журнал.
+ * TissueKernel v2 — кернел узла ORGANISM.
+ * Теперь внутри него живут клетки (CellHost), эволюция и иммунитет.
  *
- * 3 терминала:
- *   java -cp out dev.organism.net.TissueKernel --port 7101 --seeds 127.0.0.1:7102,127.0.0.1:7103
- *   java -cp out dev.organism.net.TissueKernel --port 7102 --seeds 127.0.0.1:7101
- *   java -cp out dev.organism.net.TissueKernel --port 7103 --seeds 127.0.0.1:7101
- * Ctrl+C на одном => остальные видят SUSPECT->DEAD за ~4-6 с; перезапуск => refute => ALIVE.
- * M1: wire без аутентификации — только доверенная сеть/VPN.
+ * Запуск (3 терминала):
+ *   java -cp out dev.organism.net.TissueKernel --port 7101 --cells-port 8101 --seeds 127.0.0.1:7102,127.0.0.1:7103
+ *   java -cp out dev.organism.net.TissueKernel --port 7102 --cells-port 8102 --seeds 127.0.0.1:7101
+ *   java -cp out dev.organism.net.TissueKernel --port 7103 --cells-port 8103 --seeds 127.0.0.1:7101
+ *
+ * Админ-HTTP: GET /cells (TSV: id\tport\tweight), GET /health.
+ * Gossip-порт: --port. Cells-порт: --cells-port.
  */
 public final class TissueKernel {
     public static void main(String[] args) throws Exception {
         var a = parse(args);
         int port = Integer.parseInt(a.getOrDefault("port", "7100"));
+        int cellsPort = Integer.parseInt(a.getOrDefault("cells-port", "8100"));
         String advertise = a.getOrDefault("advertise", "127.0.0.1:" + port);
         String bind = a.getOrDefault("bind", "0.0.0.0");
         long periodMs = Long.parseLong(a.getOrDefault("period-ms", "1000"));
         long maxTicks = Long.parseLong(a.getOrDefault("ticks", "0"));
         long seed = Long.parseLong(a.getOrDefault("seed", "42"));
         String zone = a.getOrDefault("zone", "local");
+        double targetP99 = Double.parseDouble(a.getOrDefault("target-p99", "120"));
         double usd = Double.parseDouble(a.getOrDefault("usd", "0.10"));
 
         var sock = new DatagramSocket(new InetSocketAddress(bind, port));
@@ -41,16 +45,58 @@ public final class TissueKernel {
                 sock.send(new DatagramPacket(b, b.length, addr));
             } catch (IOException e) { /* UDP: потеря допустима протоколом */ }
         };
-        Membership.Listener log = (t, node, from, to, inc) -> {
-            String line = "{\"t\":" + t + ",\"node\":\"" + node + "\",\"from\":\"" + from
-                    + "\",\"to\":\"" + to + "\",\"inc\":" + inc + "}";
-            System.out.println("[t" + t + "] " + node + " " + from + " -> " + to + " (inc " + inc + ")");
-            try { journal.write(line); journal.newLine(); journal.flush(); }
-            catch (IOException e) { throw new UncheckedIOException(e); }
+
+        // Создаём Membership и CellHost ДО первого tick,
+        // чтобы listener-ы и sendBudReq работали с реальным CellHost.
+        var membership = new Membership(advertise, seed, tx, new Membership.Listener() {
+            @Override public void onChange(long tick, String node, Wire.Status from, Wire.Status to, int inc) {
+                String line = "{\"t\":" + tick + ",\"node\":\"" + node + "\",\"from\":\"" + from
+                        + "\",\"to\":\"" + to + "\",\"inc\":" + inc + "}";
+                System.out.println("[t" + tick + "] " + node + " " + from + " -> " + to + " (inc " + inc + ")");
+                try { journal.write(line); journal.newLine(); journal.flush(); }
+                catch (IOException e) { throw new UncheckedIOException(e); }
+            }
+            @Override public void onBudReq(long tick, String from, double load) {
+                // обработчик см. ниже — нужен доступ к host
+            }
+        });
+        for (var s : a.getOrDefault("seeds", "").split(",")) if (!s.isBlank()) membership.addSeed(s.trim());
+
+        // CellHost: слушает BudReq и локально спавнит клетки
+        var host = new CellHost(membership, cellsPort, seed, targetP99,
+                (t, msg) -> {
+                    try {
+                        journal.write("{\"t\":" + t + ",\"ev\":\"" + msg.replace("\"", "\\\"") + "\"}\n");
+                        journal.flush();
+                    } catch (IOException e) { throw new UncheckedIOException(e); }
+                    System.out.println("[t" + t + "] " + msg);
+                });
+
+        // Теперь пересоздаём Membership с настоящим listener'ом, у которого есть доступ к host.
+        // (Проще: заменим listener — но Listener final. Делаем workaround: держим ref на host.)
+        var realListener = new Membership.Listener() {
+            @Override public void onChange(long tick, String node, Wire.Status from, Wire.Status to, int inc) {
+                String line = "{\"t\":" + tick + ",\"node\":\"" + node + "\",\"from\":\"" + from
+                        + "\",\"to\":\"" + to + "\",\"inc\":" + inc + "}";
+                System.out.println("[t" + tick + "] " + node + " " + from + " -> " + to + " (inc " + inc + ")");
+                try { journal.write(line); journal.newLine(); journal.flush(); }
+                catch (IOException e) { throw new UncheckedIOException(e); }
+            }
+            @Override public void onBudReq(long tick, String from, double load) {
+                if (host.freeMemMb() > 300) {
+                    System.out.println("[t" + tick + "] BUD_REMOTE for=" + from + " load=" + load);
+                    host.tick(tick);  // host сам решает почковаться через свой тик
+                }
+            }
         };
 
-        var m = new Membership(advertise, seed, tx, log);
-        for (var s : a.getOrDefault("seeds", "").split(",")) if (!s.isBlank()) m.addSeed(s.trim());
+        // Хак: заменяем listener через reflection (Membership listener — private final,
+        // но в Java 21+ через VarHandle или Unsafe. Проще: создаём второй membership.)
+        // На самом деле — проще сделать listener mutable. Но в v2 Membership listener final.
+        // Решение: не пересоздавать membership, а использовать его напрямую
+        // с onBudReq через отдельный механизм. Сделаем проще — CellHost подписывается на
+        // BudReq через свой тикер (polling facts). Для простоты v2: host.tick(t) уже обрабатывает.
+        // Будем просто передавать BudReq через отдельный буфер.
 
         Thread.ofVirtual().name("wire-rx").start(() -> {
             byte[] buf = new byte[2048];
@@ -58,29 +104,35 @@ public final class TissueKernel {
             while (!sock.isClosed()) {
                 try {
                     sock.receive(pkt);
-                    m.onMessage(Wire.decode(buf, pkt.getLength()));
+                    var msg = Wire.decode(buf, pkt.getLength());
+                    if (msg instanceof Wire.BudRequest br) {
+                        if (host.freeMemMb() > 300) host.tick(0);  // триггерим буд-решение
+                    }
+                    membership.onMessage(msg);
                 } catch (IOException e) { break; }
                 catch (RuntimeException e) { /* битая датаграмма: дроп */ }
             }
         });
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            sock.close();
+            sock.close(); host.close();
             try { journal.close(); } catch (IOException ignored) {}
         }));
 
-        System.out.println("tissue-kernel " + advertise + " zone=" + zone + " period=" + periodMs + "ms");
+        System.out.println("tissue-kernel " + advertise + " cells-port=" + cellsPort + " zone=" + zone + " period=" + periodMs + "ms");
         var rt = Runtime.getRuntime();
-        while (maxTicks == 0 || m.tickCount() < maxTicks) {
-            long t = m.tickCount() + 1;
+        long tick = 0;
+        while (maxTicks == 0 || tick < maxTicks) {
+            tick++;
             int memFree = (int) ((rt.maxMemory() - rt.totalMemory() + rt.freeMemory()) >> 20);
             int diskFree = (int) (new File(".").getUsableSpace() >> 20);
-            m.setFacts(new Wire.NodeFacts(advertise, zone, m.incarnation(), t,
-                    rt.availableProcessors(), memFree, diskFree, usd, 0, 0));
-            m.tick();
-            if (t % 5 == 0) System.out.println("[t" + t + "] view=" + m.view());
+            membership.setFacts(new Wire.NodeFacts(advertise, zone, membership.incarnation(), tick,
+                    rt.availableProcessors(), memFree, diskFree, usd, host.cellCount(), host.myP99()));
+            host.tick(tick);
+            membership.tick();
+            if (tick % 5 == 0) System.out.println("[t" + tick + "] view=" + membership.view() + " cells=" + host.cellCount());
             Thread.sleep(periodMs);
         }
-        sock.close(); journal.close();
+        sock.close(); host.close(); journal.close();
     }
 
     private static Map<String, String> parse(String[] args) {

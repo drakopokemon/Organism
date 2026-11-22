@@ -4,7 +4,10 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-/** Бинарный gossip-протокол v1. Sealed, ноль рефлексии, Native Image-safe. */
+/**
+ * Бинарный gossip-протокол v2. Sealed, ноль рефлексии, Native Image-safe.
+ * Добавлено в M2: BudRequest — запрос почкования на удалённый узел при нехватке локальной RAM.
+ */
 public sealed interface Wire {
     short MAGIC = 0x0A6E;
 
@@ -64,6 +67,16 @@ public sealed interface Wire {
         }
     }
 
+    /** M2: запрос почкования клетки на удалённом узле (при нехватке локальной RAM). */
+    record BudRequest(String from, double load) implements Wire {
+        @Override public byte[] encode() {
+            var b = buf((byte) 6, 128);
+            str(b, from);
+            b.putDouble(load);
+            return trim(b);
+        }
+    }
+
     static Wire decode(byte[] raw, int len) {
         var b = ByteBuffer.wrap(raw, 0, len);
         if (b.remaining() < 3 || b.getShort() != MAGIC) throw new IllegalArgumentException("bad magic");
@@ -92,6 +105,7 @@ public sealed interface Wire {
                 }
                 yield new Sync(from, pull, ms, fs);
             }
+            case 6 -> new BudRequest(str(b), b.getDouble());
             default -> throw new IllegalArgumentException("unknown wire type");
         };
     }

@@ -15,7 +15,9 @@ jobs:
         run: |
           javac -Xlint:-options -d out $(find src/main/java -name '*.java')
           cp -r src/main/resources/* out/
-      - name: Net selftest (SWIM-lite)
+      - name: Net selftest (SWIM-lite membership)
         run: java -cp out dev.organism.net.NetSelfTest
-      - name: Organism selftest (simulation)
+      - name: Cell selftest (evolution + immune, deterministic)
+        run: java -cp out dev.organism.cell.CellSelfTest
+      - name: Organism selftest (simulation, data layer, symbiont)
         run: java -Dstdout.encoding=UTF-8 -cp out dev.organism.Main --selftest

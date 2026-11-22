@@ -3,16 +3,15 @@ package dev.organism.net;
 import java.util.*;
 
 /**
- * SWIM-lite: ping -> ping-req(k=3) -> suspect -> dead + push-pull anti-entropy.
- * Транспорт инъектируется => детерминированные тесты без сокетов.
- * Outbox флашится ПОСЛЕ обработки — никаких реентерабельных мутаций таблицы.
- * Слияние: больший incarnation побеждает; при равном DEAD > SUSPECT > ALIVE;
- * прямой Ack лечит SUSPECT, но не воскрешает DEAD — для этого refute с bump incarnation.
- * Anti-entropy синкается и с DEAD — иначе остров после partition не воскреснет.
+ * SWIM-lite v2: ping -> ping-req(k=3) -> suspect -> dead + push-pull anti-entropy.
+ * M2: добавлен BudRequest — запрос почкования клетки на удалённом узле.
  */
 public final class Membership {
     public interface Transport { void send(String to, Wire msg); }
-    public interface Listener { void onChange(long tick, String node, Wire.Status from, Wire.Status to, int incarnation); }
+    public interface Listener {
+        void onChange(long tick, String node, Wire.Status from, Wire.Status to, int incarnation);
+        default void onBudReq(long tick, String from, double load) {}
+    }
 
     static final class E {
         int inc; Wire.Status st; int suspLeft; Wire.NodeFacts facts;
@@ -53,7 +52,6 @@ public final class Membership {
         return m;
     }
 
-    /** Один протокольный период. Кернел вызывает раз в period-ms. */
     public synchronized void tick() {
         tick++;
         forwarded.values().removeIf(f -> tick - f.at() > 2);
@@ -94,8 +92,15 @@ public final class Membership {
                 if (s.pull()) sendSync(s.from(), false);
             }
             case Wire.NodeFacts f -> acceptFacts(f);
+            case Wire.BudRequest r -> listener.onBudReq(tick, r.from(), r.load());
         }
         flush();
+    }
+
+    /** M2: послать BudRequest конкретному пиру (если у него есть свободная RAM). */
+    public synchronized void sendBudReq(String to, double load) {
+        if (table.containsKey(to) && table.get(to).st == Wire.Status.ALIVE)
+            send(to, new Wire.BudRequest(self, load));
     }
 
     private void send(String to, Wire m) { outbox.add(new Object[]{to, m}); }
@@ -145,7 +150,7 @@ public final class Membership {
     }
 
     private void antiEntropy() {
-        String p = pick(peers(Wire.Status.DEAD));   // и с DEAD тоже — шанс на refute вернувшемуся
+        String p = pick(peers(Wire.Status.DEAD));
         if (p == null) return;
         sendSync(p, true);
     }
@@ -153,7 +158,6 @@ public final class Membership {
     private void sendSync(String to, boolean pull) {
         var members = new ArrayList<Wire.Member>();
         table.forEach((k, v) -> members.add(new Wire.Member(k, v.inc, v.st)));
-        // транзитивная диссеминация: свои facts + все известные чужие
         var allFacts = new ArrayList<Wire.NodeFacts>();
         if (myFacts != null) allFacts.add(myFacts);
         table.forEach((k, v) -> { if (v.facts != null && !k.equals(self)) allFacts.add(v.facts); });
@@ -197,15 +201,6 @@ public final class Membership {
         for (var p : pickK(peers(Wire.Status.DEAD), 3)) sendSync(p, false);
     }
 
-    private void acceptFacts(Wire.NodeFacts f) {
-        aliveEvidence(f.node(), f.incarnation(), false);
-        var e = table.get(f.node());
-        if (e != null && (e.facts == null
-                || f.incarnation() > e.facts.incarnation()
-                || (f.incarnation() == e.facts.incarnation() && f.seq() > e.facts.seq())))
-            e.facts = f;
-    }
-
     private void aliveEvidence(String node, int inc, boolean direct) {
         if (node.equals(self)) return;
         var e = table.get(node);
@@ -218,6 +213,15 @@ public final class Membership {
         if (inc > e.inc) { transition(node, e, inc, Wire.Status.ALIVE); return; }
         if (inc == e.inc && direct && e.st == Wire.Status.SUSPECT)
             transition(node, e, inc, Wire.Status.ALIVE);
+    }
+
+    private void acceptFacts(Wire.NodeFacts f) {
+        aliveEvidence(f.node(), f.incarnation(), false);
+        var e = table.get(f.node());
+        if (e != null && (e.facts == null
+                || f.incarnation() > e.facts.incarnation()
+                || (f.incarnation() == e.facts.incarnation() && f.seq() > e.facts.seq())))
+            e.facts = f;
     }
 
     private void merge(String node, int inc, Wire.Status st) {
