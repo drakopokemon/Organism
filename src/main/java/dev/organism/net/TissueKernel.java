@@ -44,8 +44,7 @@ public final class TissueKernel {
         long seed = Long.parseLong(a.getOrDefault("seed", "42"));
         String zone = a.getOrDefault("zone", "local");
         double targetP99 = genome != null && !genome.objectives.isEmpty() && genome.objectives.get(0) instanceof Genome.LatencyObjective l ? l.targetP99Ms() : Double.parseDouble(a.getOrDefault("target-p99", "120"));
-        double usd = genome != null && !genome.objectives.isEmpty() && genome.objectives.stream().anyMatch(o -> o instanceof Genome.CostObjective) ? 0.10 : Double.parseDouble(a.getOrDefault("usd", "0.10")); // Упрощённо
-        double usd = Double.parseDouble(a.getOrDefault("usd", "0.10"));
+        double usd = genome != null && !genome.objectives.isEmpty() && genome.objectives.stream().anyMatch(o -> o instanceof Genome.CostObjective) ? 0.10 : Double.parseDouble(a.getOrDefault("usd", "0.10"));
 
         var sock = new DatagramSocket(new InetSocketAddress(bind, port));
         byte[] secret = "organism-genome-secret-v1".getBytes(StandardCharsets.UTF_8);
