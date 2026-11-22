@@ -45,12 +45,8 @@ public final class StorageHost {
         versions.put(shard, newVersion);
         var cell = cells.get("s" + shard + "@" + m.self);
         if (cell != null) cell.version = newVersion;
-        // Репликация: шлём ReplicateRequest на все живые узлы (кроме себя)
-        for (var e : m.view().entrySet()) {
-            if (!e.getKey().equals(m.self) && e.getValue() == Wire.Status.ALIVE) {
-                sendReplicate.accept(new Wire.ReplicateRequest(shard, m.self, newVersion, data));
-            }
-        }
+        // Репликация: передаём в транспорт, он сам рассылает всем живым узлам
+        sendReplicate.accept(new Wire.ReplicateRequest(shard, m.self, newVersion, data));
         return newVersion;
     }
 
