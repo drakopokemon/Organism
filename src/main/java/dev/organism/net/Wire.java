@@ -45,19 +45,20 @@ public sealed interface Wire {
         }
     }
 
-    /** Push-pull: pull=true => получатель отвечает своим Sync(pull=false). facts — piggyback телеметрия отправителя. */
-    record Sync(String from, boolean pull, List<Member> members, NodeFacts facts) implements Wire {
-        public Sync(String from, boolean pull, List<Member> members) { this(from, pull, members, null); }
+    /** Push-pull: pull=true => получатель отвечает своим Sync(pull=false).
+     *  facts — транзитивная телеметрия: отправитель шлёт все известные ему facts. */
+    record Sync(String from, boolean pull, List<Member> members, List<NodeFacts> facts) implements Wire {
+        public Sync(String from, boolean pull, List<Member> members) { this(from, pull, members, List.of()); }
         @Override public byte[] encode() {
-            var b = buf((byte) 5, 64 + from.length() * 3 + members.size() * 96 + (facts != null ? 512 : 0));
+            var b = buf((byte) 5, 64 + from.length() * 3 + members.size() * 96 + facts.size() * 192);
             str(b, from); b.put((byte) (pull ? 1 : 0)).putShort((short) members.size());
             for (var m : members) { str(b, m.node()); b.putInt(m.incarnation()).put((byte) m.status().ordinal()); }
-            b.put((byte) (facts != null ? 1 : 0));
-            if (facts != null) {
-                str(b, facts.node()); str(b, facts.zone());
-                b.putInt(facts.incarnation()).putLong(facts.seq())
-                 .putInt(facts.cpuCores()).putInt(facts.memFreeMb()).putInt(facts.diskFreeMb())
-                 .putDouble(facts.usdPerHour()).putInt(facts.cells()).putDouble(facts.p99Ms());
+            b.putShort((short) facts.size());
+            for (var f : facts) {
+                str(b, f.node()); str(b, f.zone());
+                b.putInt(f.incarnation()).putLong(f.seq())
+                 .putInt(f.cpuCores()).putInt(f.memFreeMb()).putInt(f.diskFreeMb())
+                 .putDouble(f.usdPerHour()).putInt(f.cells()).putDouble(f.p99Ms());
             }
             return trim(b);
         }
@@ -82,12 +83,14 @@ public sealed interface Wire {
                     if (st < 0 || st >= Status.values().length) throw new IllegalArgumentException("bad status " + st);
                     ms.add(new Member(node, inc, Status.values()[st]));
                 }
-                NodeFacts f = null;
-                if (b.get() != 0) {
-                    f = new NodeFacts(str(b), str(b), b.getInt(), b.getLong(),
-                            b.getInt(), b.getInt(), b.getInt(), b.getDouble(), b.getInt(), b.getDouble());
+                int fn = b.getShort() & 0xFFFF;
+                if (fn > 4096) throw new IllegalArgumentException("facts too big: " + fn);
+                var fs = new ArrayList<NodeFacts>(fn);
+                for (int i = 0; i < fn; i++) {
+                    fs.add(new NodeFacts(str(b), str(b), b.getInt(), b.getLong(),
+                            b.getInt(), b.getInt(), b.getInt(), b.getDouble(), b.getInt(), b.getDouble()));
                 }
-                yield new Sync(from, pull, ms, f);
+                yield new Sync(from, pull, ms, fs);
             }
             default -> throw new IllegalArgumentException("unknown wire type");
         };

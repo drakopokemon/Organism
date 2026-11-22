@@ -90,7 +90,7 @@ public final class Membership {
             }
             case Wire.Sync s -> {
                 for (var m : s.members()) merge(m.node(), m.incarnation(), m.status());
-                if (s.facts() != null) acceptFacts(s.facts());
+                for (var f : s.facts()) acceptFacts(f);
                 if (s.pull()) sendSync(s.from(), false);
             }
             case Wire.NodeFacts f -> acceptFacts(f);
@@ -153,10 +153,13 @@ public final class Membership {
     private void sendSync(String to, boolean pull) {
         var members = new ArrayList<Wire.Member>();
         table.forEach((k, v) -> members.add(new Wire.Member(k, v.inc, v.st)));
+        // транзитивная диссеминация: свои facts + все известные чужие
+        var allFacts = new ArrayList<Wire.NodeFacts>();
+        if (myFacts != null) allFacts.add(myFacts);
+        table.forEach((k, v) -> { if (v.facts != null && !k.equals(self)) allFacts.add(v.facts); });
         for (int i = 0; i < members.size(); i += 40) {
             var chunk = List.copyOf(members.subList(i, Math.min(i + 40, members.size())));
-            // facts едут с первым чанком каждого Sync — гарантия доставки за O(log N) периодов
-            send(to, new Wire.Sync(self, pull, chunk, i == 0 ? myFacts : null));
+            send(to, new Wire.Sync(self, pull, chunk, i == 0 ? allFacts : List.of()));
         }
     }
 
