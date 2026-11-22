@@ -5,7 +5,7 @@ M1 added SWIM-lite membership. M2 adds processing cells with real evolution.
 ## Architecture v2
 
     TissueKernel (one process per node)
-     +-- Membership   (SWIM-lite: ping/ping-req/suspect/dead, transitive facts)
+     +-- Membership   (SWIM-lite: ping/ping-req/suspect/dead, transitive facts, BudRequest)
      +-- CellHost     (cell lifecycle + evolution + immune)
      |   +-- Cell[]   (HTTP workers on Virtual Threads, genes physically change behavior)
      |   +-- Evolver  ((1+1)-ES, canary, stat threshold, rollback, cooldown)

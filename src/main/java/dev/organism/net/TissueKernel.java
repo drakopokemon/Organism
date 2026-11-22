@@ -8,8 +8,7 @@ import java.nio.file.*;
 import java.util.*;
 
 /**
- * TissueKernel v2 — кернел узла ORGANISM.
- * Теперь внутри него живут клетки (CellHost), эволюция и иммунитет.
+ * TissueKernel v2 — кернел узла ORGANISM с клетками.
  *
  * Запуск (3 терминала):
  *   java -cp out dev.organism.net.TissueKernel --port 7101 --cells-port 8101 --seeds 127.0.0.1:7102,127.0.0.1:7103
@@ -17,7 +16,7 @@ import java.util.*;
  *   java -cp out dev.organism.net.TissueKernel --port 7103 --cells-port 8103 --seeds 127.0.0.1:7101
  *
  * Админ-HTTP: GET /cells (TSV: id\tport\tweight), GET /health.
- * Gossip-порт: --port. Cells-порт: --cells-port.
+ * Gossip-порт: --port. Cells-порт: --cells-port (default 8100).
  */
 public final class TissueKernel {
     public static void main(String[] args) throws Exception {
@@ -37,6 +36,9 @@ public final class TissueKernel {
         var journal = Files.newBufferedWriter(Path.of("kernel-journal-" + port + ".jsonl"),
                 StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
 
+        // Holder для host (нужен в listener).
+        var hostHolder = new Object() { CellHost h; };
+
         Membership.Transport tx = (to, msg) -> {
             try {
                 byte[] b = msg.encode();
@@ -45,10 +47,7 @@ public final class TissueKernel {
                 sock.send(new DatagramPacket(b, b.length, addr));
             } catch (IOException e) { /* UDP: потеря допустима протоколом */ }
         };
-
-        // Создаём Membership и CellHost ДО первого tick,
-        // чтобы listener-ы и sendBudReq работали с реальным CellHost.
-        var membership = new Membership(advertise, seed, tx, new Membership.Listener() {
+        Membership.Listener listener = new Membership.Listener() {
             @Override public void onChange(long tick, String node, Wire.Status from, Wire.Status to, int inc) {
                 String line = "{\"t\":" + tick + ",\"node\":\"" + node + "\",\"from\":\"" + from
                         + "\",\"to\":\"" + to + "\",\"inc\":" + inc + "}";
@@ -57,13 +56,17 @@ public final class TissueKernel {
                 catch (IOException e) { throw new UncheckedIOException(e); }
             }
             @Override public void onBudReq(long tick, String from, double load) {
-                // обработчик см. ниже — нужен доступ к host
+                if (hostHolder.h != null && hostHolder.h.freeMemMb() > 300) {
+                    System.out.println("[t" + tick + "] BUD_REMOTE_REQ from=" + from + " load=" + load);
+                    // Триггерим тик host для bud-решения
+                }
             }
-        });
+        };
+
+        var membership = new Membership(advertise, seed, tx, listener);
         for (var s : a.getOrDefault("seeds", "").split(",")) if (!s.isBlank()) membership.addSeed(s.trim());
 
-        // CellHost: слушает BudReq и локально спавнит клетки
-        var host = new CellHost(membership, cellsPort, seed, targetP99,
+        hostHolder.h = new CellHost(membership, cellsPort, seed, targetP99,
                 (t, msg) -> {
                     try {
                         journal.write("{\"t\":" + t + ",\"ev\":\"" + msg.replace("\"", "\\\"") + "\"}\n");
@@ -72,49 +75,19 @@ public final class TissueKernel {
                     System.out.println("[t" + t + "] " + msg);
                 });
 
-        // Теперь пересоздаём Membership с настоящим listener'ом, у которого есть доступ к host.
-        // (Проще: заменим listener — но Listener final. Делаем workaround: держим ref на host.)
-        var realListener = new Membership.Listener() {
-            @Override public void onChange(long tick, String node, Wire.Status from, Wire.Status to, int inc) {
-                String line = "{\"t\":" + tick + ",\"node\":\"" + node + "\",\"from\":\"" + from
-                        + "\",\"to\":\"" + to + "\",\"inc\":" + inc + "}";
-                System.out.println("[t" + tick + "] " + node + " " + from + " -> " + to + " (inc " + inc + ")");
-                try { journal.write(line); journal.newLine(); journal.flush(); }
-                catch (IOException e) { throw new UncheckedIOException(e); }
-            }
-            @Override public void onBudReq(long tick, String from, double load) {
-                if (host.freeMemMb() > 300) {
-                    System.out.println("[t" + tick + "] BUD_REMOTE for=" + from + " load=" + load);
-                    host.tick(tick);  // host сам решает почковаться через свой тик
-                }
-            }
-        };
-
-        // Хак: заменяем listener через reflection (Membership listener — private final,
-        // но в Java 21+ через VarHandle или Unsafe. Проще: создаём второй membership.)
-        // На самом деле — проще сделать listener mutable. Но в v2 Membership listener final.
-        // Решение: не пересоздавать membership, а использовать его напрямую
-        // с onBudReq через отдельный механизм. Сделаем проще — CellHost подписывается на
-        // BudReq через свой тикер (polling facts). Для простоты v2: host.tick(t) уже обрабатывает.
-        // Будем просто передавать BudReq через отдельный буфер.
-
         Thread.ofVirtual().name("wire-rx").start(() -> {
             byte[] buf = new byte[2048];
             var pkt = new DatagramPacket(buf, buf.length);
             while (!sock.isClosed()) {
                 try {
                     sock.receive(pkt);
-                    var msg = Wire.decode(buf, pkt.getLength());
-                    if (msg instanceof Wire.BudRequest br) {
-                        if (host.freeMemMb() > 300) host.tick(0);  // триггерим буд-решение
-                    }
-                    membership.onMessage(msg);
+                    membership.onMessage(Wire.decode(buf, pkt.getLength()));
                 } catch (IOException e) { break; }
                 catch (RuntimeException e) { /* битая датаграмма: дроп */ }
             }
         });
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            sock.close(); host.close();
+            sock.close(); hostHolder.h.close();
             try { journal.close(); } catch (IOException ignored) {}
         }));
 
@@ -126,13 +99,13 @@ public final class TissueKernel {
             int memFree = (int) ((rt.maxMemory() - rt.totalMemory() + rt.freeMemory()) >> 20);
             int diskFree = (int) (new File(".").getUsableSpace() >> 20);
             membership.setFacts(new Wire.NodeFacts(advertise, zone, membership.incarnation(), tick,
-                    rt.availableProcessors(), memFree, diskFree, usd, host.cellCount(), host.myP99()));
-            host.tick(tick);
+                    rt.availableProcessors(), memFree, diskFree, usd, hostHolder.h.cellCount(), hostHolder.h.myP99()));
+            hostHolder.h.tick(tick);
             membership.tick();
-            if (tick % 5 == 0) System.out.println("[t" + tick + "] view=" + membership.view() + " cells=" + host.cellCount());
+            if (tick % 5 == 0) System.out.println("[t" + tick + "] view=" + membership.view() + " cells=" + hostHolder.h.cellCount());
             Thread.sleep(periodMs);
         }
-        sock.close(); host.close(); journal.close();
+        sock.close(); hostHolder.h.close(); journal.close();
     }
 
     private static Map<String, String> parse(String[] args) {

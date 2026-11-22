@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpServer;
 import dev.organism.net.Membership;
 import dev.organism.net.Wire;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.*;

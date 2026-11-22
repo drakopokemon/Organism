@@ -4,10 +4,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-/**
- * Бинарный gossip-протокол v2. Sealed, ноль рефлексии, Native Image-safe.
- * Добавлено в M2: BudRequest — запрос почкования на удалённый узел при нехватке локальной RAM.
- */
+/** Бинарный gossip-протокол v2. Sealed, ноль рефлексии, Native Image-safe. */
 public sealed interface Wire {
     short MAGIC = 0x0A6E;
 
@@ -48,8 +45,6 @@ public sealed interface Wire {
         }
     }
 
-    /** Push-pull: pull=true => получатель отвечает своим Sync(pull=false).
-     *  facts — транзитивная телеметрия: отправитель шлёт все известные ему facts. */
     record Sync(String from, boolean pull, List<Member> members, List<NodeFacts> facts) implements Wire {
         public Sync(String from, boolean pull, List<Member> members) { this(from, pull, members, List.of()); }
         @Override public byte[] encode() {
@@ -67,7 +62,7 @@ public sealed interface Wire {
         }
     }
 
-    /** M2: запрос почкования клетки на удалённом узле (при нехватке локальной RAM). */
+    /** M2: запрос почкования клетки на удалённом узле. */
     record BudRequest(String from, double load) implements Wire {
         @Override public byte[] encode() {
             var b = buf((byte) 6, 128);

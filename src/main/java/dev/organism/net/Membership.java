@@ -2,10 +2,7 @@ package dev.organism.net;
 
 import java.util.*;
 
-/**
- * SWIM-lite v2: ping -> ping-req(k=3) -> suspect -> dead + push-pull anti-entropy.
- * M2: добавлен BudRequest — запрос почкования клетки на удалённом узле.
- */
+/** SWIM-lite v2: добавлен BudRequest. */
 public final class Membership {
     public interface Transport { void send(String to, Wire msg); }
     public interface Listener {
@@ -97,7 +94,6 @@ public final class Membership {
         flush();
     }
 
-    /** M2: послать BudRequest конкретному пиру (если у него есть свободная RAM). */
     public synchronized void sendBudReq(String to, double load) {
         if (table.containsKey(to) && table.get(to).st == Wire.Status.ALIVE)
             send(to, new Wire.BudRequest(self, load));

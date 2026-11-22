@@ -22,6 +22,7 @@ public final class NetSelfTest {
                 case Wire.PingReq r -> r.from();
                 case Wire.Sync s -> s.from();
                 case Wire.NodeFacts f -> f.node();
+                case Wire.BudRequest br -> br.from();
             };
             if (down.contains(from) || down.contains(to) || blocked(from, to) || !nodes.containsKey(to)) { dropped++; return; }
             delivered++;
