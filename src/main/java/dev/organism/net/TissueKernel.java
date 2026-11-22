@@ -34,6 +34,8 @@ public final class TissueKernel {
         double usd = Double.parseDouble(a.getOrDefault("usd", "0.10"));
 
         var sock = new DatagramSocket(new InetSocketAddress(bind, port));
+        byte[] secret = "organism-genome-secret-v1".getBytes(StandardCharsets.UTF_8);
+        var codec = new WireCodec(secret);
         var journal = Files.newBufferedWriter(Path.of("kernel-journal-" + port + ".jsonl"),
                 StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
 
@@ -41,7 +43,7 @@ public final class TissueKernel {
 
         Membership.Transport tx = (to, msg) -> {
             try {
-                byte[] b = msg.encode();
+                byte[] b = codec.wrap(msg);
                 int c = to.lastIndexOf(':');
                 var addr = new InetSocketAddress(to.substring(0, c), Integer.parseInt(to.substring(c + 1)));
                 sock.send(new DatagramPacket(b, b.length, addr));
@@ -67,7 +69,7 @@ public final class TissueKernel {
 
         hostHolder.s = new StorageHost(membership, req -> {
             try {
-                byte[] b = req.encode();
+                byte[] b = codec.wrap(req);
                 // Отправляем на все узлы (упрощённо: в реальности нужен routing)
                 for (var e : membership.view().entrySet()) {
                     if (!e.getKey().equals(advertise) && e.getValue() == Wire.Status.ALIVE) {
@@ -77,7 +79,7 @@ public final class TissueKernel {
                     }
                 }
             } catch (IOException e) { /* UDP: потеря допустима */ }
-        });
+        }, Path.of("data", "wal"));
 
         hostHolder.h = new CellHost(membership, cellsPort, seed, targetP99,
                 (t, msg) -> {
@@ -94,7 +96,7 @@ public final class TissueKernel {
             while (!sock.isClosed()) {
                 try {
                     sock.receive(pkt);
-                    var msg = Wire.decode(buf, pkt.getLength());
+                    var msg = codec.unwrap(buf, pkt.getLength());
                     if (msg instanceof Wire.ReplicateRequest rr) {
                         hostHolder.s.onReplicateRequest(rr);
                     } else {
@@ -105,7 +107,7 @@ public final class TissueKernel {
             }
         });
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            sock.close(); hostHolder.h.close();
+            sock.close(); hostHolder.h.close(); hostHolder.s.close();
             try { journal.close(); } catch (IOException ignored) {}
         }));
 
@@ -124,7 +126,7 @@ public final class TissueKernel {
             if (tick % 5 == 0) System.out.println("[t" + tick + "] view=" + membership.view() + " cells=" + hostHolder.h.cellCount());
             Thread.sleep(periodMs);
         }
-        sock.close(); hostHolder.h.close(); journal.close();
+        sock.close(); hostHolder.h.close(); hostHolder.s.close(); journal.close();
     }
 
     private static Map<String, String> parse(String[] args) {
