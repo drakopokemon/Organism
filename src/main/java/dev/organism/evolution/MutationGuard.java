@@ -5,9 +5,9 @@ import java.util.Map;
 
 public final class MutationGuard {
     public boolean validate(Map<String, Double> params, Genome genome) {
-        if (params == null || genome == null || genome.mutationPolicy() == null) return false;
+        if (params == null || genome == null || genome.mutationPolicy == null) return false;
         
-        Genome.MutationPolicy p = genome.mutationPolicy();
+        Genome.MutationPolicy p = genome.mutationPolicy;
         
         if (params.containsKey("poolSize")) {
             double v = params.get("poolSize");
