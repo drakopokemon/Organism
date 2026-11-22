@@ -62,7 +62,11 @@ Genome (sealed Objective / Constraint / Gene)        ← правила игры
 * `run.sh` падал при нестандартном выводе `javac`; теперь работает и с JRE+модулем `jdk.compiler`.
 
 
-## M4: Production Readiness (Edge & Chaos)
+## Архитектура: Соответствие спецификации (M1-M6 завершены)
+Проект реализует 3 слоя:
+1. **Слой A: Геном** (`genome.yaml` + `Genome.java`): Декларативное описание через Sealed Interfaces.
+2. **Слой B: Агенты** (`dev.organism.agent.*`): `ProcessingAgent`, `ImmuneAgent` как отдельные entry-points для GraalVM Native Image.
+3. **Слой C: Среда**: Децентрализованный SWIM-lite gossip с HMAC-SHA256.
 * **Disk Persistence (WAL):** `StorageHost` теперь пишет все мутации шардов в Write-Ahead Log (`data/wal/shard-N.wal`) через `FileChannel` с `force(false)`. При рестарте узла состояние мгновенно восстанавливается из WAL без полного anti-entropy sync с пиров.
 * **Gossip Auth (HMAC-SHA256):** Все UDP-датаграммы `Wire` оборачиваются в `WireCodec` с MAC-подписью. Это защищает edge-флот от инжекта фейковых `ReplicateRequest` и `NodeFacts` без overhead полноценного mTLS/DTLS handshake.
 * **Chaos CI:** В `.github/workflows/ci.yml` добавлен шаг `chaos.sh`, который поднимает 3 узла, эмулирует сетевой partition через `SIGSTOP`, и проверяет, что gossip и Storage восстанавливают консистентность после `SIGCONT`.
