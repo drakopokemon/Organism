@@ -31,7 +31,7 @@ public final class StorageSelfTest {
         }
     }
 
-    static void build(FakeNet net, int n, long seed) {
+    static void build(FakeNet net, int n, long seed) throws Exception {
         for (int i = 1; i <= n; i++) {
             String id = "10.0.0." + i + ":7100";
             var m = new Membership(id, seed + i, net, (t, node, f, to, inc) -> {});
@@ -55,7 +55,7 @@ public final class StorageSelfTest {
         }
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         System.out.println("\n  ORGANISM storage selftest (replication, deterministic)\n");
 
         // 1. Запись реплицируется на все узлы
