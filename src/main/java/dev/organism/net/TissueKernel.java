@@ -1,6 +1,7 @@
 package dev.organism.net;
 
 import dev.organism.cell.CellHost;
+import dev.organism.genome.Genome;
 import dev.organism.storage.StorageHost;
 import java.io.*;
 import java.net.*;
@@ -22,6 +23,18 @@ import java.util.*;
 public final class TissueKernel {
     public static void main(String[] args) throws Exception {
         var a = parse(args);
+        
+        // M6: Загрузка декларативного генома
+        Genome genome = null;
+        String genomePath = a.getOrDefault("genome", "genome.yaml");
+        try {
+            genome = Genome.fromFile(java.nio.file.Path.of(genomePath));
+            System.out.println("[GENOME] Loaded from " + genomePath + " | Objectives: " + genome.objectives.size() + ", Constraints: " + genome.constraints.size());
+        } catch (Exception e) {
+            System.err.println("[GENOME] Failed to load " + genomePath + ": " + e.getMessage());
+            System.err.println("[GENOME] Falling back to default hardcoded parameters.");
+        }
+
         int port = Integer.parseInt(a.getOrDefault("port", "7100"));
         int cellsPort = Integer.parseInt(a.getOrDefault("cells-port", "8100"));
         String advertise = a.getOrDefault("advertise", "127.0.0.1:" + port);
@@ -30,7 +43,8 @@ public final class TissueKernel {
         long maxTicks = Long.parseLong(a.getOrDefault("ticks", "0"));
         long seed = Long.parseLong(a.getOrDefault("seed", "42"));
         String zone = a.getOrDefault("zone", "local");
-        double targetP99 = Double.parseDouble(a.getOrDefault("target-p99", "120"));
+        double targetP99 = genome != null && !genome.objectives.isEmpty() && genome.objectives.get(0) instanceof Genome.LatencyObjective l ? l.targetP99Ms() : Double.parseDouble(a.getOrDefault("target-p99", "120"));
+        double usd = genome != null && !genome.objectives.isEmpty() && genome.objectives.stream().anyMatch(o -> o instanceof Genome.CostObjective) ? 0.10 : Double.parseDouble(a.getOrDefault("usd", "0.10")); // Упрощённо
         double usd = Double.parseDouble(a.getOrDefault("usd", "0.10"));
 
         var sock = new DatagramSocket(new InetSocketAddress(bind, port));
