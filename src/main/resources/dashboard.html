@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ORGANISM</title>
+<style>
+:root{--bg:#04070d;--panel:#0a1120;--line:#16233a;--tx:#c9d7ee;--dim:#5d7194;--cy:#27e8ff;--gr:#35f08c;--am:#ffc14d;--rd:#ff4d6d;--vi:#a78bfa}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(1200px 600px at 70% -10%,#0d1f3a 0%,var(--bg) 60%);color:var(--tx);font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--line)}
+h1{margin:0;font-size:20px;letter-spacing:.35em;background:linear-gradient(90deg,var(--cy),var(--gr),var(--vi));-webkit-background-clip:text;color:transparent}
+.pulse{width:10px;height:10px;border-radius:50%;background:var(--gr);box-shadow:0 0 12px var(--gr);animation:p 1.4s infinite}@keyframes p{50%{opacity:.25;transform:scale(.7)}}
+.sub{color:var(--dim)}main{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;padding:16px 22px}
+.card{background:linear-gradient(180deg,#0b1427,var(--panel));border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0}
+.card h2{margin:0 0 10px;font-size:11px;font-weight:600;letter-spacing:.18em;color:var(--dim);text-transform:uppercase}
+.kpi{grid-column:span 2}.kpi b{display:block;font-size:26px;margin-top:2px}.kpi small{color:var(--dim)}
+.w6{grid-column:span 6}.w4{grid-column:span 4}.w8{grid-column:span 8}.w12{grid-column:span 12}
+canvas{width:100%;height:190px;display:block}
+.nodes{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.node{border:1px solid var(--line);border-radius:10px;padding:8px;background:#070d1a}.node.down{opacity:.35;border-color:var(--rd)}.node.banned{border-style:dashed;opacity:.5}
+.node h3{margin:0 0 6px;font-size:11px;color:var(--dim);font-weight:500;display:flex;justify-content:space-between}
+.cells{display:flex;flex-wrap:wrap;gap:4px;min-height:14px}
+.cell{width:14px;height:14px;border-radius:4px;background:var(--cy);box-shadow:0 0 6px #27e8ff66}
+.cell.s0{background:#456;box-shadow:none;animation:p 1s infinite}.cell.s2{background:var(--rd);box-shadow:0 0 8px var(--rd)}
+.cell.t{outline:2px solid var(--am);outline-offset:1px;animation:tr 1.1s infinite}@keyframes tr{50%{outline-color:transparent}}
+#log{height:260px;overflow:auto;font-size:12px}#log div{padding:2px 0;border-bottom:1px solid #0e1a30}
+.tag{display:inline-block;min-width:150px;font-weight:600}.ok{color:var(--gr)}.bad{color:var(--rd)}.hi{color:var(--am)}.vi{color:var(--vi)}.mu{color:var(--dim)}
+.legend span{margin-right:14px}.legend i{display:inline-block;width:10px;height:3px;margin-right:5px;vertical-align:middle}
+.sh{display:inline-block;width:20px;height:20px;margin:3px;border-radius:5px;background:var(--gr);box-shadow:0 0 6px #35f08c55}
+.sh.d{background:var(--am);box-shadow:0 0 8px var(--am)}.sh.r{background:var(--cy);animation:p .7s infinite}.sh.x{background:var(--rd);box-shadow:0 0 8px var(--rd)}
+.dstat{margin-top:8px;color:var(--dim);line-height:1.7}.dstat b{font-size:15px}
+.node .st{color:var(--cy);font-size:10px;margin-top:5px;letter-spacing:1px}
+button{background:#12203a;color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:3px 10px;cursor:pointer;font:inherit}button:hover{border-color:var(--cy)}
+</style></head><body>
+<header><div class="pulse"></div><h1>ORGANISM</h1><span class="sub" id="st">connecting…</span></header>
+<main>
+ <div class="card kpi"><h2>p99</h2><b id="k1">–</b><small id="k1s"></small></div>
+ <div class="card kpi"><h2>трафик</h2><b id="k2">–</b><small>req/s</small></div>
+ <div class="card kpi"><h2>клетки</h2><b id="k3">–</b><small id="k3s"></small></div>
+ <div class="card kpi"><h2>доступность</h2><b id="k4">–</b><small>%</small></div>
+ <div class="card kpi"><h2>стоимость</h2><b id="k5">–</b><small id="k5s"></small></div>
+ <div class="card kpi"><h2>fitness</h2><b id="k6">–</b><small>0…1</small></div>
+ <div class="card w6"><h2>латентность vs SLA</h2><canvas id="c1"></canvas><div class="legend"><span><i style="background:#27e8ff"></i>p99</span><span><i style="background:#ff4d6d"></i>SLA</span><span><i style="background:#35f08c55"></i>трафик</span></div></div>
+ <div class="card w6"><h2>эволюция генов (нормировано)</h2><canvas id="c2"></canvas><div class="legend" id="gl"></div></div>
+ <div class="card w8"><h2>среда — узлы и клетки <span class="mu">■ активна · <span class="bad">■</span> карантин · <span class="hi">▢</span> идёт эксперимент · пунктир — запрещённая зона</span></h2><div class="nodes" id="nodes"></div></div>
+ <div class="card w4"><h2>журнал эволюции</h2><div id="pend"></div><div id="log"></div></div>
+ <div class="card w4"><h2>fitness</h2><canvas id="c3"></canvas></div>
+ <div class="card w4"><h2>стоимость $/ч</h2><canvas id="c4"></canvas></div>
+ <div class="card w4"><h2>данные — шарды <span class="mu"><span class="ok">■</span> здоров · <span class="hi">■</span> деградировал · <span style="color:var(--cy)">■</span> копируется · <span class="bad">■</span> потерян</span></h2><div id="dg"></div><div class="dstat" id="ds"></div></div>
+</main>
+<script>
+const H=[],MAX=420,col={pool:'#27e8ff',cacheMb:'#35f08c',timeoutMs:'#ffc14d',batch:'#a78bfa',queueLimit:'#ff4d6d'};
+const $=i=>document.getElementById(i);
+function line(cv,series,lo,hi,fill){const d=devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;cv.width=w*d;cv.height=h*d;const g=cv.getContext('2d');g.scale(d,d);
+ g.strokeStyle='#14233b';g.lineWidth=1;for(let i=0;i<=4;i++){const y=h*i/4;g.beginPath();g.moveTo(0,y);g.lineTo(w,y);g.stroke()}
+ for(const s of series){if(!s.v.length)continue;g.beginPath();s.v.forEach((v,i)=>{const x=i/(MAX-1)*w,y=h-(Math.min(Math.max(v,lo),hi)-lo)/(hi-lo)*h;i?g.lineTo(x,y):g.moveTo(x,y)});
+  if(s.fill){g.lineTo((s.v.length-1)/(MAX-1)*w,h);g.lineTo(0,h);g.fillStyle=s.c;g.fill()}else{g.strokeStyle=s.c;g.lineWidth=s.w||2;g.setLineDash(s.dash||[]);g.shadowColor=s.c;g.shadowBlur=s.dash?0:6;g.stroke();g.setLineDash([]);g.shadowBlur=0}}}
+function draw(){const L=H.slice(-MAX),n=k=>L.map(x=>x[k]);
+ const mx=Math.max(300,...n('p99'),(L.at(-1)?.target||100)*2.2);
+ const rmax=Math.max(1,...n('rps'));
+ line($('c1'),[{v:n('rps').map(v=>v/rmax*mx*.8),c:'#35f08c22',fill:1},{v:n('target'),c:'#ff4d6d',dash:[5,4],w:1.5},{v:n('p99'),c:'#27e8ff'}],0,mx);
+ const gs=Object.keys(L.at(-1)?.genes||{});line($('c2'),gs.map(k=>({v:L.map(x=>{const[a,l,h]=x.genes[k];return(a-l)/(h-l)}),c:col[k]||'#fff'})),0,1);
+ line($('c3'),[{v:n('fit'),c:'#35f08c'}],0,1);
+ line($('c4'),[{v:n('maxCost'),c:'#ff4d6d',dash:[5,4],w:1.5},{v:n('cost'),c:'#ffc14d'}],0,Math.max(...n('maxCost'),1)*1.1);
+ $('gl').innerHTML=gs.map(k=>`<span><i style="background:${col[k]}"></i>${k} <b>${L.at(-1).genes[k][0].toFixed(0)}</b></span>`).join('')}
+function ui(s){
+ $('st').textContent=`t=${s.t}  ·  ${s.nodes.filter(n=>n.up).length}/${s.nodes.length} узлов`;
+ const bad=s.p99>s.target;$('k1').textContent=s.p99.toFixed(0)+' ms';$('k1').className=bad?'bad':'ok';$('k1s').textContent='SLA '+s.target+' ms';
+ $('k2').textContent=s.rps.toFixed(0);$('k3').textContent=s.replicas;$('k3s').textContent='популяция';
+ $('k4').textContent=(s.avail*100).toFixed(1);$('k4').className=s.avail<.99?'bad':'ok';
+ $('k5').textContent='$'+s.cost.toFixed(2);$('k5s').textContent='лимит $'+s.maxCost+' · $'+s.usd.toFixed(2)+'/1M';$('k6').textContent=s.fit.toFixed(3);
+ $('nodes').innerHTML=s.nodes.map(n=>`<div class="node ${n.up?'':'down'} ${n.banned?'banned':''}"><h3><span>${n.id}</span><span>${n.banned?'🚫':n.up?n.cells.length:'☠'}</span></h3><div class="cells">${n.cells.map(c=>`<div class="cell s${c[1]} ${c[3]?'t':''}" title="${c[0]} ρ=${c[2]}" style="opacity:${.35+Math.min(1,c[2])*.65}"></div>`).join('')}</div><div class="st" title="реплики шардов на диске узла">${'▪'.repeat(Math.min(n.store||0,16))}${n.store?' '+n.store:''}</div></div>`).join('');
+ if(s.data){const d=s.data;$('dg').innerHTML=[...d.shards].map(c=>`<i class="sh ${c=='h'?'':c}"></i>`).join('');
+  $('ds').innerHTML=`R=${d.R} · здоровых <b class="ok">${d.healthy}</b>/${d.total} · деградировало <b class="hi">${d.degraded}</b> · потеряно <b class="bad">${d.lost}</b><br>копирований: ${d.copying} · лаг реплик ${d.lag.toFixed(1)} зап. · восстановлено реплик ${d.repaired} · потеряно записей ${d.writesLost}`}
+ const cls={MUTATION_ACCEPTED:'ok',ABORT:'bad',QUARANTINE:'bad',CHAOS_NODE_DOWN:'bad',CHAOS_POISON:'bad',GERMINATE:'vi',REPLACED:'vi',RELEASE:'vi',NODE_REVIVED:'vi',PROPOSAL:'hi',PROPOSAL_APPROVED:'hi',PROPOSAL_DENIED:'hi',MUTATION_REJECTED:'mu',MUTATION_BLOCKED:'mu',REPLICATE:'vi',REPLICA_READY:'mu',DATA_LOST:'bad',WRITES_LOST:'bad'};
+ const lg=$('log');for(const e of s.events){const {t,ev,who,...r}=e;const d=document.createElement('div');
+  d.innerHTML=`<span class="mu">t=${t}</span> <span class="tag ${cls[ev]||''}">${ev}</span> ${who} <span class="mu">${fmt(r)}</span>`;lg.prepend(d);while(lg.children.length>80)lg.lastChild.remove()}
+ $('pend').innerHTML=((s.pending||[]).length>1?`<div style="margin-bottom:8px"><button onclick="decAll(1)">Approve all</button> <button onclick="decAll(0)">Deny all</button> <span class="mu">${s.pending.length} ждут решения</span></div>`:'')+(s.pending||[]).map(p=>`<div class="hi" style="margin-bottom:8px">⚠ ${p.cell}: ${fmt(p.changes)} <button onclick="dec('${p.id}',1)">Approve</button> <button onclick="dec('${p.id}',0)">Deny</button></div>`).join('')}
+function fmt(o){return Object.entries(o).map(([k,v])=>typeof v==='object'&&v&&!Array.isArray(v)?fmt(v):Array.isArray(v)?`${k} ${v[0]}→${v[1]}`:`${k}=${typeof v==='number'?+v.toFixed(3):v}`).join(' ')}
+function decAll(ok){fetch('/decide?all=1&ok='+ok)}
+function dec(id,ok){fetch('/decide?id='+encodeURIComponent(id)+'&ok='+ok)}
+function push(s){H.push(s);if(H.length>MAX*2)H.shift();ui(s);draw()}
+fetch('/history').then(r=>r.json()).then(a=>{a.forEach(x=>{H.push(x)});if(a.length){ui(a.at(-1));draw()}}).finally(()=>{const es=new EventSource('/stream');es.onmessage=m=>push(JSON.parse(m.data));es.onerror=()=>$('st').textContent='disconnected'});
+addEventListener('resize',draw);
+</script></body></html>

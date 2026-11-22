@@ -1,0 +1,21 @@
+name: ci
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Compile
+        run: |
+          javac -Xlint:-options -d out $(find src/main/java -name '*.java')
+          cp -r src/main/resources/* out/
+      - name: Net selftest (SWIM-lite)
+        run: java -cp out dev.organism.net.NetSelfTest
+      - name: Organism selftest (simulation)
+        run: java -Dstdout.encoding=UTF-8 -cp out dev.organism.Main --selftest
