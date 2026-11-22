@@ -17,10 +17,11 @@ public final class Wal implements Closeable {
     public Wal(Path dir, int shard) throws IOException {
         Files.createDirectories(dir);
         this.path = dir.resolve("shard-" + shard + ".wal");
-        this.channel = FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.APPEND, StandardOpenOption.WRITE, StandardOpenOption.READ);
+        this.channel = FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.READ);
     }
 
     public synchronized void append(long version, byte[] data) throws IOException {
+        channel.position(channel.size());
         ByteBuffer buf = ByteBuffer.allocate(4 + 8 + 4 + data.length);
         buf.putInt(8 + 4 + data.length); // total entry length
         buf.putLong(version);
