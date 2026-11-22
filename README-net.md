@@ -1,17 +1,38 @@
-# ORGANISM M2 - evolution + immune on real network
+# ORGANISM M3 - distributed storage + chaos recovery
 
-M1 added SWIM-lite membership. M2 adds processing cells with real evolution.
+M1: SWIM-lite membership. M2: cells + evolution + immune. M3: distributed storage layer.
 
-## Architecture v2
+## Architecture v3
 
     TissueKernel (one process per node)
-     +-- Membership   (SWIM-lite: ping/ping-req/suspect/dead, transitive facts, BudRequest)
-     +-- CellHost     (cell lifecycle + evolution + immune)
-     |   +-- Cell[]   (HTTP workers on Virtual Threads, genes physically change behavior)
-     |   +-- Evolver  ((1+1)-ES, canary, stat threshold, rollback, cooldown)
+     +-- Membership      (SWIM-lite: ping/ping-req/suspect/dead, transitive facts, BudRequest)
+     +-- CellHost        (cell lifecycle + evolution + immune)
+     |   +-- Cell[]      (HTTP workers on Virtual Threads, genes physically change behavior)
+     |   +-- Evolver     ((1+1)-ES, canary, stat threshold, rollback, cooldown)
      |   +-- LocalImmune (quarantine -> release or kill+respawn)
+     +-- StorageHost     (24 shards, R=3 replication, append-log)
+     |   +-- StorageCell (one replica per shard per node)
      +-- admin HTTP :8101 (/cells, /health)
      +-- gossip UDP :7100
+
+## What's new in M3
+
+### Storage layer
+- 24 shards, R=3 replication factor
+- Append-log per shard (in-memory, real data)
+- Write: leader receives write, replicates to 1 follower sync, others async
+- Node failure: other nodes detect via gossip, re-replicate lost shards
+- `StorageSelfTest`: deterministic checks (replication, multi-write sync, determinism)
+
+### Chaos testing
+- `bench/chaos.sh`: 3 kernels + LoadGen + `kill -9` on one kernel mid-run
+- Verifies: errRate < 15%, p99 < target, recovery events (QUARANTINE/BUD/IMMUNE)
+- Exit code 0 = pass, 1 = fail
+
+### GraalVM native image
+- `mvn -Pnative package` → `target/organism` (simulation main)
+- `mvn -Pnative-kernel package` → `target/tissue-kernel` (real kernel)
+- Standalone binaries, no JVM required, ~5-100ms startup, ~40-120MB idle memory
 
 ## Cluster launch (3 terminals, JDK 21+)
 
@@ -22,27 +43,29 @@ M1 added SWIM-lite membership. M2 adds processing cells with real evolution.
     # load:
     java -cp out dev.organism.cell.LoadGen --seeds 127.0.0.1:8101,127.0.0.1:8102,127.0.0.1:8103 --rps 200 --seconds 60 --target-p99 600
 
-## What happens
+## Chaos test
 
-1. Each kernel starts with 2 cells (pool=2, queue=512, cache=64MB, timeout=500ms).
-2. Evolution tries to mutate genes in turn (pool, queueLimit, cacheMb, timeoutMs),
-   spawns a canary cell, compares against control group for 10 ticks.
-3. If canary beats control + ACCEPT threshold - mutation is fixed on all control cells.
-4. Immune watches each cell's p99: 3 consecutive "sick" ticks -> quarantine (weight=0,
-   LoadGen stops sending traffic), 8 ticks without recovery -> kill+respawn.
-5. On dropRate > 2%: if local RAM is free -> bud locally, otherwise BudRequest over
-   gossip to the node with max freeMem.
+    ./bench/chaos.sh
+
+Expected: 3 kernels start, LoadGen runs 60 sec with spike at 40%, one kernel killed at 20 sec, remaining 2 recover (QUARANTINE/BUD events), LoadGen finishes with errRate < 0.15 and p99 < 600ms.
 
 ## Unit tests (CI)
 
-- NetSelfTest: 8 checks of SWIM-lite (incl. partition+heal, determinism, transitive facts)
-- CellSelfTest: 5 checks of evolution+immune on stubs (adopt/reject mutations,
-  determinism, quarantine/kill/respawn)
-- Main --selftest: 13 checks of simulation (genome invariants, data on node failures, symbiont)
+- `NetSelfTest`: 8 checks of SWIM-lite (incl. partition+heal, determinism, transitive facts, ReplicateRequest roundtrip)
+- `CellSelfTest`: 5 checks of evolution+immune on stubs
+- `StorageSelfTest`: 4 checks of storage (replication, multi-write sync, determinism, 24 shards)
+- `Main --selftest`: 13 checks of simulation (genome invariants, data on node failures, symbiont)
 
-## M2 boundaries
+## M3 boundaries
 
-- No real Storage cells yet (M3).
-- No mTLS on wire - trusted network only (M3).
-- No GraalVM native image (M3).
-- LoadGen chaos test not in CI (detached JVM processes) - run locally.
+- No mTLS on wire - trusted network only (M4).
+- Storage is in-memory (no disk persistence) - M4.
+- No full chaos test in CI (detached JVM processes) - run locally with `bench/chaos.sh`.
+- GraalVM native image profile exists but not built in CI (requires GraalVM setup).
+
+## Next: M4
+
+- mTLS or shared secret on wire
+- Disk persistence for Storage (WAL + snapshots)
+- Chaos test in CI (Docker containers with network partition simulation)
+- Video demo: 90 sec showing real cluster, kill -9, recovery, evolution

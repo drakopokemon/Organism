@@ -23,6 +23,7 @@ public final class NetSelfTest {
                 case Wire.Sync s -> s.from();
                 case Wire.NodeFacts f -> f.node();
                 case Wire.BudRequest br -> br.from();
+                case Wire.ReplicateRequest rr -> rr.fromNode();
             };
             if (down.contains(from) || down.contains(to) || blocked(from, to) || !nodes.containsKey(to)) { dropped++; return; }
             delivered++;
@@ -118,10 +119,12 @@ public final class NetSelfTest {
                 new Wire.Ack("n2:2", 4, 77),
                 new Wire.PingReq("n1:1", "n3:3", 3, 78),
                 new Wire.Sync("n1:1", true, List.of(new Wire.Member("n2:2", 1, Wire.Status.SUSPECT))),
-                new Wire.NodeFacts("n1:1", "eu-1", 2, 9, 8, 512, 1024, 0.25, 4, 12.5));
+                new Wire.NodeFacts("n1:1", "eu-1", 2, 9, 8, 512, 1024, 0.25, 4, 12.5),
+                new Wire.BudRequest("n1:1", 0.05),
+                new Wire.ReplicateRequest(3, "n1:1", 42, new byte[]{1, 2, 3}));
         boolean rt = true;
         for (var m : msgs) { byte[] b = m.encode(); rt &= Wire.decode(b, b.length).equals(m); }
-        check("wire encode/decode roundtrip all 5 types", rt, "");
+        check("wire encode/decode roundtrip all 7 types", rt, "");
 
         System.out.println(failed == 0 ? "\n  ALL GREEN\n" : "\n  " + failed + " FAILED\n");
         System.exit(failed == 0 ? 0 : 1);

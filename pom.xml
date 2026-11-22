@@ -2,13 +2,12 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>dev.organism</groupId><artifactId>organism</artifactId><version>0.1.0</version><packaging>jar</packaging>
+  <groupId>dev.organism</groupId><artifactId>organism</artifactId><version>0.3.0</version><packaging>jar</packaging>
   <properties>
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <main.class>dev.organism.Main</main.class>
   </properties>
-  <!-- Ноль зависимостей: только JDK (java.net.http-сервер, виртуальные потоки, ScopedValue). -->
   <build>
     <plugins>
       <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId><version>3.4.2</version>
@@ -25,6 +24,16 @@
           <executions><execution><id>build-native</id><goals><goal>compile-no-fork</goal></goals><phase>package</phase></execution></executions>
           <configuration><imageName>organism</imageName><mainClass>${main.class}</mainClass>
             <buildArgs><buildArg>-H:IncludeResources=dashboard\.html</buildArg><buildArg>-O2</buildArg></buildArgs></configuration></plugin>
+      </plugins></build>
+    </profile>
+    <!-- mvn -Pnative-kernel package  → ./target/tissue-kernel (нативный кернел) -->
+    <profile><id>native-kernel</id>
+      <properties><main.class>dev.organism.net.TissueKernel</main.class></properties>
+      <build><plugins>
+        <plugin><groupId>org.graalvm.buildtools</groupId><artifactId>native-maven-plugin</artifactId><version>0.10.6</version><extensions>true</extensions>
+          <executions><execution><id>build-native</id><goals><goal>compile-no-fork</goal></goals><phase>package</phase></execution></executions>
+          <configuration><imageName>tissue-kernel</imageName><mainClass>${main.class}</mainClass>
+            <buildArgs><buildArg>-O2</buildArg></buildArgs></configuration></plugin>
       </plugins></build>
     </profile>
   </profiles>

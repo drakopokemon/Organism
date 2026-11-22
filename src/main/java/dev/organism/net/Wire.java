@@ -4,7 +4,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-/** Бинарный gossip-протокол v2. Sealed, ноль рефлексии, Native Image-safe. */
+/** Бинарный gossip-протокол v3. Sealed, ноль рефлексии, Native Image-safe. */
 public sealed interface Wire {
     short MAGIC = 0x0A6E;
 
@@ -62,12 +62,24 @@ public sealed interface Wire {
         }
     }
 
-    /** M2: запрос почкования клетки на удалённом узле. */
     record BudRequest(String from, double load) implements Wire {
         @Override public byte[] encode() {
             var b = buf((byte) 6, 128);
             str(b, from);
             b.putDouble(load);
+            return trim(b);
+        }
+    }
+
+    /** M3: запрос репликации шарда. */
+    record ReplicateRequest(int shard, String fromNode, long version, byte[] data) implements Wire {
+        @Override public byte[] encode() {
+            var b = buf((byte) 7, 128 + data.length);
+            b.putInt(shard);
+            str(b, fromNode);
+            b.putLong(version);
+            b.putInt(data.length);
+            b.put(data);
             return trim(b);
         }
     }
@@ -101,6 +113,16 @@ public sealed interface Wire {
                 yield new Sync(from, pull, ms, fs);
             }
             case 6 -> new BudRequest(str(b), b.getDouble());
+            case 7 -> {
+                int shard = b.getInt();
+                String fromNode = str(b);
+                long version = b.getLong();
+                int dataLen = b.getInt();
+                if (dataLen > 65536) throw new IllegalArgumentException("data too big: " + dataLen);
+                byte[] data = new byte[dataLen];
+                b.get(data);
+                yield new ReplicateRequest(shard, fromNode, version, data);
+            }
             default -> throw new IllegalArgumentException("unknown wire type");
         };
     }

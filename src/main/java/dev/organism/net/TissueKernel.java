@@ -1,6 +1,7 @@
 package dev.organism.net;
 
 import dev.organism.cell.CellHost;
+import dev.organism.storage.StorageHost;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
@@ -8,7 +9,7 @@ import java.nio.file.*;
 import java.util.*;
 
 /**
- * TissueKernel v2 — кернел узла ORGANISM с клетками.
+ * TissueKernel v3 — кернел узла ORGANISM с клетками и Storage.
  *
  * Запуск (3 терминала):
  *   java -cp out dev.organism.net.TissueKernel --port 7101 --cells-port 8101 --seeds 127.0.0.1:7102,127.0.0.1:7103
@@ -36,8 +37,7 @@ public final class TissueKernel {
         var journal = Files.newBufferedWriter(Path.of("kernel-journal-" + port + ".jsonl"),
                 StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
 
-        // Holder для host (нужен в listener).
-        var hostHolder = new Object() { CellHost h; };
+        var hostHolder = new Object() { CellHost h; StorageHost s; };
 
         Membership.Transport tx = (to, msg) -> {
             try {
@@ -58,13 +58,26 @@ public final class TissueKernel {
             @Override public void onBudReq(long tick, String from, double load) {
                 if (hostHolder.h != null && hostHolder.h.freeMemMb() > 300) {
                     System.out.println("[t" + tick + "] BUD_REMOTE_REQ from=" + from + " load=" + load);
-                    // Триггерим тик host для bud-решения
                 }
             }
         };
 
         var membership = new Membership(advertise, seed, tx, listener);
         for (var s : a.getOrDefault("seeds", "").split(",")) if (!s.isBlank()) membership.addSeed(s.trim());
+
+        hostHolder.s = new StorageHost(membership, req -> {
+            try {
+                byte[] b = req.encode();
+                // Отправляем на все узлы (упрощённо: в реальности нужен routing)
+                for (var e : membership.view().entrySet()) {
+                    if (!e.getKey().equals(advertise) && e.getValue() == Wire.Status.ALIVE) {
+                        int c = e.getKey().lastIndexOf(':');
+                        var addr = new InetSocketAddress(e.getKey().substring(0, c), Integer.parseInt(e.getKey().substring(c + 1)));
+                        sock.send(new DatagramPacket(b, b.length, addr));
+                    }
+                }
+            } catch (IOException e) { /* UDP: потеря допустима */ }
+        });
 
         hostHolder.h = new CellHost(membership, cellsPort, seed, targetP99,
                 (t, msg) -> {
@@ -76,12 +89,17 @@ public final class TissueKernel {
                 });
 
         Thread.ofVirtual().name("wire-rx").start(() -> {
-            byte[] buf = new byte[2048];
+            byte[] buf = new byte[4096];
             var pkt = new DatagramPacket(buf, buf.length);
             while (!sock.isClosed()) {
                 try {
                     sock.receive(pkt);
-                    membership.onMessage(Wire.decode(buf, pkt.getLength()));
+                    var msg = Wire.decode(buf, pkt.getLength());
+                    if (msg instanceof Wire.ReplicateRequest rr) {
+                        hostHolder.s.onReplicateRequest(rr);
+                    } else {
+                        membership.onMessage(msg);
+                    }
                 } catch (IOException e) { break; }
                 catch (RuntimeException e) { /* битая датаграмма: дроп */ }
             }
@@ -101,6 +119,7 @@ public final class TissueKernel {
             membership.setFacts(new Wire.NodeFacts(advertise, zone, membership.incarnation(), tick,
                     rt.availableProcessors(), memFree, diskFree, usd, hostHolder.h.cellCount(), hostHolder.h.myP99()));
             hostHolder.h.tick(tick);
+            hostHolder.s.tick(tick);
             membership.tick();
             if (tick % 5 == 0) System.out.println("[t" + tick + "] view=" + membership.view() + " cells=" + hostHolder.h.cellCount());
             Thread.sleep(periodMs);
