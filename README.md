@@ -434,7 +434,41 @@ java -cp out dev.organism.net.TissueKernel --port 7101 --cells-port 8101 --genom
 а не производительность железа. Сходимость SWIM и partition/heal проверяются отдельно: `NetSelfTest`, `HierarchySelfTest`, chaos-suite.
 Запуск: `java -cp out dev.organism.net.hier.ScaleSelfTest`.
 
-## CI (26 шагов)
+## 6.3 Подписанный геном + FIDO2 на узле (opt-in)
+
+**Столп 1, supply chain самого генома.** Геном — подписанный CBOR-артефакт (Ed25519).
+Узел проверяет подпись ДО старта, fail-closed: битая подпись или чужой ключ -> узел НЕ стартует,
+никакого fallback на YAML.
+
+```bash
+java -cp out dev.organism.supplychain.GenomeArtifact genkey genome-signing
+java -cp out dev.organism.supplychain.GenomeArtifact sign genome.yaml genome-signing.key genome.cbor
+java -cp out dev.organism.net.TissueKernel --genome-artifact genome.cbor --genome-pub "$(cat genome-signing.pub)"
+```
+
+**Столп 6, YubiKey прямо в GUI узла.** Флаг --webauthn-enforce (требует --api-port):
+кнопка APPROVE заменяется на **SIGN (FIDO2)**. Браузер делает navigator.credentials.get()
+по challenge = SHA-256 канонической карточки мутации; узел проверяет ES256/EdDSA, origin,
+rpIdHash, UP/UV и монотонный signCount. Без валидной assertion approve -> 403 fail-closed.
+REJECT остаётся RBAC (отказ безопасен). Без флага поведение прежнее.
+Four-eyes (две подписи разных людей) — на Control Plane (--four-eyes), узел — одноподписный.
+
+```bash
+java -cp out dev.organism.net.TissueKernel --api-port 9101 --rbac-file rbac.txt \
+  --approval-risk 0.5 --webauthn-enforce --webauthn-rp localhost --webauthn-creds wa-creds.txt
+# регистрация ключа (ADMIN): COSE EC2/P-256 или OKP/Ed25519 в base64url
+curl -k -X POST -H "Authorization: Bearer $ADMIN" \
+  "https://localhost:9101/webauthn/register?id=cred-1&user=alice&cose=<b64url>"
+```
+
+--webauthn-creds — append-only файл credId:user:SPKI-b64, credentials переживают рестарт.
+signCount живёт в памяти процесса: после рестарта счётчик с 0 (клон-детект в пределах сессии).
+В банковском контуре: не рестартовать узел без ре-регистрации ключей или нести одобрения на CP с four-eyes.
+Для не-resident ключей credential id вводится в поле GUI (localStorage); resident YubiKey работает без него.
+Браузерный WebAuthn требует secure context: TLS (--tls-keystore) или localhost.
+--webauthn-origins <csv> — явный allow-list origins (дефолт: https/http x rpId/127.0.0.1 x api-port).
+
+## CI (27 шагов)
 Compile -> Launcher -> Bootstrap17 -> Net -> Cell -> Storage -> Organism -> Production -> UI+Genome -> Launcher smoke -> Chaos ->
-**SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E -> Uplink(6.1) -> Rollout(6.2 impact/canary/SPRT/four-eyes/drain) -> Scale(5000 nodes WAN/churn)**.
+**SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E -> Uplink(6.1) -> Rollout(6.2 impact/canary/SPRT/four-eyes/drain) -> Scale(5000 nodes WAN/churn) -> WebAuthnApi(6.3: FIDO2 approve fail-closed + signed genome)**.
 Все новые selftest'ы детерминированные: Raft — in-memory transport с ручными tick; WebAuthn — синтетический EC-ключ; SPRT — seeded Random(2026).
