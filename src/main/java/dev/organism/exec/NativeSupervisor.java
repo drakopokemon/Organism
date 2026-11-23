@@ -98,7 +98,7 @@ public final class NativeSupervisor implements AutoCloseable {
         pb.environment().put("ORGANISM_EPOCH", Long.toString(epoch));
         pb.environment().put("ORGANISM_CELL", name);
         if (logFile != null) {
-            pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile)).redirectErrorStream(true);
+            pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile())).redirectErrorStream(true);
         } else {
             pb.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD);
         }
