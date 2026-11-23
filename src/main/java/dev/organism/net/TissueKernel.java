@@ -246,8 +246,13 @@ public final class TissueKernel {
             Supplier<String> agentsSup = () -> agentsJson(fe, hostHolder.h, immune);
             Supplier<String> genomeSup = () -> genomeJson(fgenome);
             Runnable manualTick = fe == null ? null : fe::tick;
+            final String fAuditSecret = auditSecret;
+            final Path fAuditPath = a.containsKey("audit-path") ? Path.of(a.get("audit-path")) : null;
+            Supplier<String> clusterSup = () -> clusterJson(membership, advertise, immune);
+            Supplier<String> auditSup = () -> auditJson(fAuditPath, fAuditSecret);
             extra.api = new OrganismApi(Integer.parseInt(a.get("api-port")), rbac, metrics,
-                    agentsSup, genomeSup, fg, manualTick, a.get("tls-keystore"), a.get("tls-pass"));
+                    agentsSup, genomeSup, fg, manualTick, a.get("tls-keystore"), a.get("tls-pass"),
+                    clusterSup, auditSup, true);
             System.out.println("[API] listening :" + extra.api.port() + (a.containsKey("tls-keystore") ? " TLS" : ""));
         }
 
@@ -370,6 +375,58 @@ public final class TissueKernel {
         Files.writeString(kp, hex);
         System.out.println("[AUDIT] generated secret key file: " + kp + " (keep it to verify the chain)");
         return hex;
+    }
+
+    private static String clusterJson(Membership membership, String self, ImmuneAgent immune) {
+        var sb = new StringBuilder("{\"self\":").append(Json.str(self)).append(",\"nodes\":[");
+        boolean first = true;
+        for (var e : membership.view().entrySet()) {
+            if (!first) sb.append(',');
+            first = false;
+            String node = e.getKey();
+            var f = membership.facts(node);
+            sb.append("{\"node\":").append(Json.str(node))
+              .append(",\"status\":").append(Json.str(e.getValue().name()))
+              .append(",\"self\":").append(node.equals(self))
+              .append(",\"health\":").append(Json.str(immune.health(node).name()));
+            if (f != null) sb.append(",\"zone\":").append(Json.str(f.zone()))
+              .append(",\"p99\":").append(Json.num(f.p99Ms()))
+              .append(",\"cells\":").append(f.cells())
+              .append(",\"memFree\":").append(f.memFreeMb())
+              .append(",\"inc\":").append(f.incarnation());
+            sb.append('}');
+        }
+        return sb.append("]}").toString();
+    }
+
+    private static String auditJson(Path file, String secret) {
+        if (file == null || secret == null || !Files.exists(file)) return "{\"verified\":false,\"events\":[]}";
+        try {
+            boolean verified = AuditLog.verify(file, secret);
+            var lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+            var sb = new StringBuilder("{\"verified\":").append(verified).append(",\"events\":[");
+            int from = Math.max(0, lines.size() - 40);
+            boolean first = true;
+            for (int i = from; i < lines.size(); i++) {
+                String l = lines.get(i);
+                if (l.isEmpty()) continue;
+                int seqEnd = l.indexOf(',');
+                String seq = l.substring(7, seqEnd);
+                int evS = l.indexOf("\"event\":\"") + 9;
+                int evE = l.indexOf("\",\"detail\"");
+                String event = evS >= 9 && evE > evS ? l.substring(evS, evE) : "";
+                int dS = l.indexOf("\"detail\":\"") + 10;
+                int dE = l.lastIndexOf("\",\"prev\":\"");
+                String detail = dS >= 10 && dE > dS ? l.substring(dS, dE) : "";
+                if (!first) sb.append(',');
+                first = false;
+                sb.append("{\"seq\":").append(seq).append(",\"event\":").append(Json.str(event))
+                  .append(",\"detail\":").append(Json.str(detail)).append('}');
+            }
+            return sb.append("]}").toString();
+        } catch (Exception e) {
+            return "{\"verified\":false,\"events\":[],\"error\":\"read failed\"}";
+        }
     }
 
     private static String paramsJson(Map<String, Double> p) {
