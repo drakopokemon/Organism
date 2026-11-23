@@ -21,6 +21,7 @@ public final class CellHost implements AutoCloseable {
     private final BiConsumer<Long, String> journal;
     private final double targetP99;
     private int cellSeq, evolverSeen, immuneSeen;
+    private volatile boolean evolverPaused;
 
     public CellHost(Membership m, int httpPort, long seed, double targetP99,
                     BiConsumer<Long, String> journal) throws IOException {
@@ -93,7 +94,7 @@ public final class CellHost implements AutoCloseable {
     public void tick(long t) {
         var controls = new ArrayList<CellCtl>();
         for (var c : cells) if (!c.canary && !c.quarantined()) controls.add(c);
-        evolver.tick(t, controls);
+        if (!evolverPaused) evolver.tick(t, controls);
         immune.tick(t, controls, clusterMedian());
         for (int d = evolverSeen; d < evolver.decisions().size(); d++) {
             var x = evolver.decisions().get(d);
@@ -126,6 +127,16 @@ public final class CellHost implements AutoCloseable {
                 rt.availableProcessors(), (int) freeMemMb(),
                 (int) (new java.io.File(".").getUsableSpace() >> 20), 0.1, cells.size(), myP99()));
     }
+
+    /**
+     * 6.2 (аддитивно, opt-in): доступ к поколениям клеток для RolloutManager.
+     * Без --rollout ни один из этих методов не вызывается, поведение узла идентично прежнему.
+     * pauseEvolver(true) отдаёт управление эволюцией клеток RolloutManager (canary-first вместо (1+1)-ES).
+     */
+    public List<Cell> cellsView() { return List.copyOf(cells); }
+    public Cell spawnCell(Cell.Genes g, boolean canary) { var c = newCell(g, canary); cells.add(c); return c; }
+    public void removeCell(CellCtl c) { cells.remove(c); ((Cell) c).close(); }
+    public void pauseEvolver(boolean p) { evolverPaused = p; }
 
     public int cellCount() { return cells.size(); }
 
