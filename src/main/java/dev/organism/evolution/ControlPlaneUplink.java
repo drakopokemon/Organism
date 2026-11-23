@@ -41,10 +41,10 @@ public final class ControlPlaneUplink implements AutoCloseable {
             boolean failure = false;
             for (HumanApprovalGate.Proposal p : gate.all()) {
                 if (p.status != HumanApprovalGate.Status.PENDING) {
-                    mirrored.remove(p.id());
+                    mirrored.remove(p.id);
                     continue;
                 }
-                String rid = mirrored.get(p.id());
+                String rid = mirrored.get(p.id);
                 if (rid == null) {
                     ControlPlaneClient.RemoteProposal rp = client.submitMutation(p.agentId, p.params, p.risk);
                     if (rp == null) {
@@ -53,9 +53,9 @@ public final class ControlPlaneUplink implements AutoCloseable {
                         continue;
                     }
                     success = true;
-                    mirrored.put(p.id(), rp.id());
+                    mirrored.put(p.id, rp.id());
                     inc("organism_control_mirrored_total");
-                    audit("CONTROL_PROPOSAL_MIRRORED", "local=" + p.id() + " remote=" + rp.id()
+                    audit("CONTROL_PROPOSAL_MIRRORED", "local=" + p.id + " remote=" + rp.id()
                             + " agent=" + p.agentId + " risk=" + p.risk + " fourEyes=" + rp.fourEyes());
                 } else {
                     ControlPlaneClient.RemoteState st = client.status(rid);
@@ -67,19 +67,19 @@ public final class ControlPlaneUplink implements AutoCloseable {
                     success = true;
                     switch (st.status()) {
                         case "APPROVED" -> {
-                            HumanApprovalGate.Status r = gate.decide(p.id(), true, "control-plane:" + st.decidedBy());
+                            HumanApprovalGate.Status r = gate.decide(p.id, true, "control-plane:" + st.decidedBy());
                             if (r == HumanApprovalGate.Status.APPROVED) {
                                 inc("organism_control_remote_approved_total");
-                                audit("CONTROL_REMOTE_APPROVED", "local=" + p.id() + " remote=" + rid + " by=" + st.decidedBy());
+                                audit("CONTROL_REMOTE_APPROVED", "local=" + p.id + " remote=" + rid + " by=" + st.decidedBy());
                             } else {
                                 inc("organism_control_remote_stale_total");
-                                audit("CONTROL_REMOTE_STALE", "local=" + p.id() + " remote=" + rid + " localStatus=" + r);
+                                audit("CONTROL_REMOTE_STALE", "local=" + p.id + " remote=" + rid + " localStatus=" + r);
                             }
                         }
                         case "REJECTED", "EXPIRED" -> {
-                            HumanApprovalGate.Status r = gate.decide(p.id(), false, "control-plane:" + st.decidedBy());
+                            HumanApprovalGate.Status r = gate.decide(p.id, false, "control-plane:" + st.decidedBy());
                             inc("organism_control_remote_rejected_total");
-                            audit("CONTROL_REMOTE_REJECTED", "local=" + p.id() + " remote=" + rid
+                            audit("CONTROL_REMOTE_REJECTED", "local=" + p.id + " remote=" + rid
                                     + " remoteStatus=" + st.status() + " localStatus=" + r);
                         }
                         default -> { /* PENDING: ждём людей */ }
