@@ -7,7 +7,7 @@ where javac >nul 2>nul || (echo [organism] Nuzhen JDK dlya bootstrap: https://ad
 if not exist out_boot mkdir out_boot
 javac -encoding UTF-8 -nowarn -d out_boot src\main\java\dev\organism\tools\JdkBootstrap.java || (echo [organism] bootstrap compile failed & exit /b 1)
 set "JDKHOME="
-for /f "delims=" %%h in ('java -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -cp out_boot dev.organism.tools.JdkBootstrap "%CD%\.organism\jdk"') do set "JDKHOME=%%h"
+for /f "delims=" %%h in ('java -cp out_boot dev.organism.tools.JdkBootstrap "%CD%\.organism\jdk"') do set "JDKHOME=%%h"
 if not defined JDKHOME (echo [organism] JDK 25 ne poluchen. Postav: winget install EclipseAdoptium.Temurin.25.JDK & exit /b 1)
 set "JAVAC=%JDKHOME%\bin\javac.exe"
 set "JAVA=%JDKHOME%\bin\java.exe"
