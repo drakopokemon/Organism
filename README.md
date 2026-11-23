@@ -2,7 +2,7 @@
 
 Инфраструктура, которую не настраивают, а **выращивают**: декларативный геном (цели + ограничения + политики мутаций),
 нативные Java-агенты, децентрализованный gossip, непрерывная эволюция конфигурации под нагрузку.
-**Ноль внешних зависимостей — только JDK 21+ (CI: Temurin 25, чистый javac).**
+**Ноль внешних зависимостей — только JDK. Toolchain: Temurin 25 LTS (как в CI), ядро требует Java 21+ (Loom).**
 
 Не «ещё один Kubernetes». K8s приводит систему к заданному состоянию; ORGANISM непрерывно ищет лучшее состояние
 в пространстве конфигураций поведения. Ниша: edge-сети, гетерогенные промышленные кластеры, компании,
@@ -10,22 +10,33 @@
 
 ## Запуск в одну команду
 
-```bash
-java Launch.java       # ЛЮБАЯ ОС (Windows/Linux/macOS), нужен JDK 21+ на PATH
-java Launch.java 5     # 5 узлов
-# обёртки: organism.bat (Windows cmd)  /  ./organism.sh (Linux/macOS)
+**Windows (cmd) — путь проверен CI-джобом `windows-smoke` на windows-latest со стартовым JDK 17:**
+
+```bat
+git clone https://github.com/drakopokemon/Organism
+cd Organism
+organism.bat
+rem 5 узлов:  organism.bat 5
 ```
 
-**Windows (cmd/PowerShell):** `organism.bat` или `java Launch.java`. Файл `.sh` в cmd НЕ запускается — это bash.
-**Linux/macOS:** `./organism.sh` или `java Launch.java`. Нужен JDK 21+ (Temurin), `java` на PATH.
+**Linux/macOS:**
+
+```bash
+./organism.sh          # или ./organism.sh 5
+java Launch.java       # альтернатива на любой ОС, нужен JDK 21+ на PATH
+```
+
+Файл `.sh` в cmd НЕ запускается — это bash-скрипт. Клон уже был? Сделай `git pull` перед запуском.
 
 Скрипт сам компилирует (JDK), генерит PSK/admin-токен/PKCS12 (один раз, в .organism/),
 поднимает кластер с secure gossip + TLS API + hash-chain аудитом + human-in-the-loop и печатает URL и токен.
 
 
-> **JDK 17?** `organism.bat` / `organism.sh` сами скачают portable Temurin 21 в `.organism/jdk`
-> (через `JdkBootstrap`, совместимый с 17) и соберут проект им. Вручную: `winget install EclipseAdoptium.Temurin.21.JDK`.
-> Ядро проекта — virtual threads (Java 21+), на 17 оно физически не компилируется; это требование, не баг.
+> **JDK 17 (или любой < 25)?** `organism.bat` / `organism.sh` сами скачают portable **Temurin 25 LTS** в `.organism/jdk`
+> (через `JdkBootstrap`: исходник совместим с 17, 2 попытки загрузки, tar/zip, проверка `bin/javac`) и соберут проект им —
+> тем же toolchain, что в CI, без `--enable-preview`. Вручную: `winget install EclipseAdoptium.Temurin.25.JDK`.
+> Ядро — virtual threads (Java 21+), на 17 оно физически не компилируется; это требование, не баг.
+> CI-job `windows-smoke` гоняет ровно этот путь: JDK 17 на PATH -> bootstrap -> compile -> `Launcher --setup-only`.
 
 ## GUI (живой дашборд)
 
