@@ -8,7 +8,7 @@ COPY src/main/java src/main/java
 COPY genome.yaml genome.yaml
 RUN mkdir -p out && javac -d out $(find src/main/java -name '*.java') \
  && native-image -cp out -o organism dev.organism.net.TissueKernel \
-      --no-fallback --enable-https -march=compatibility -H:+ReportExceptionStackTraces
+      --no-fallback --enable-https -march=compatibility -H:+ReportExceptionStackTraces -H:IncludeResources=organism-ui.html
 
 FROM gcr.io/distroless/base-debian12
 WORKDIR /
