@@ -8,6 +8,23 @@
 в пространстве конфигураций поведения. Ниша: edge-сети, гетерогенные промышленные кластеры, компании,
 уставшие платить за неиспользуемую эластичность.
 
+## Запуск в одну команду
+
+```bash
+./organism.sh          # 3 узла: компиляция + генерация PSK/токена/TLS + secured cluster + GUI
+./organism.sh 5        # 5 узлов
+```
+
+Скрипт сам компилирует (JDK), генерит PSK/admin-токен/PKCS12 (один раз, в .organism/),
+поднимает кластер с secure gossip + TLS API + hash-chain аудитом + human-in-the-loop и печатает URL и токен.
+
+## GUI (живой дашборд)
+
+Открой https://127.0.0.1:9101/ (TLS self-signed — прими сертификат), вставь токен из вывода organism.sh.
+Дашборд: topology gossip-mesh с immune-подсветкой, vitals + p99-timeline, очередь одобрения мутаций
+(APPROVE/REJECT только ADMIN), immune-панель, эволюция агентов, геном, audit-chain с верификацией, симбионт/экспорт.
+Vanilla JS + canvas, без CDN/зависимостей, CSP + security headers, per-IP rate-limit на API.
+
 ## Архитектура
 
 ```
@@ -182,7 +199,7 @@ Native Image: без динамической загрузки классов, �
 - Eventual consistency gossip: узел может «не видеть» соседа секунды; split-brain возможен при partition
   (SWIM сходится после heal). Stateful-миграция — самое сложное: сейчас споры = снапшоты параметров;
   полная репликация состояния Storage — через WAL/ReplicateRequest (R=3).
-- Genome.fromFile пока возвращает типизированный дефолт (парсинг YAML — следующий шаг, контракт sealed сохранён).
+- Genome.fromFile теперь РЕАЛЬНО парсит genome.yaml (GenomeParser, fail-closed); при отсутствии файла — типизированный дефолт. Sealed-контракты сохранены, подтипы добавлены аддитивно.
 - Эволюция кернела (EvolutionEngine+Gate) governs policy-параметры узла; клеточная эволюция живёт в cell.Evolver
   (canary/adopt/revert). Оба слоя детерминированы при фиксированном seed.
 - Это не weekend project: продакшн-доводка (парсинг генома, реальный routing репликации, mTLS для TCP-плоскостей,
