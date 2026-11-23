@@ -42,3 +42,22 @@ jobs:
         run: |
           chmod +x bench/chaos.sh
           ./bench/chaos.sh
+
+      - name: Pillar 1 selftest (supply chain CBOR/Ed25519)
+        run: java -cp out dev.organism.supplychain.SupplyChainSelfTest
+      - name: Pillar 2 selftest (Raft consensus)
+        run: java -cp out dev.organism.raft.RaftSelfTest
+      - name: Pillar 2/6 selftest (envelope, SPRT, WebAuthn, four-eyes)
+        run: java -cp out dev.organism.control.ControlSelfTest
+      - name: Pillar 4 selftest (fencing epochs)
+        run: java -cp out dev.organism.data.DataPlaneSelfTest
+      - name: Pillar 5 selftest (hierarchical gossip, WAN/churn)
+        run: java -cp out dev.organism.net.hier.HierarchySelfTest
+      - name: Pillar 5 selftest (JDK CA, 24h certs, CRL, mTLS)
+        run: java -cp out dev.organism.security.ca.CaSelfTest
+      - name: Pillar 6 selftest (Merkle, TSA, tamper)
+        run: java -cp out dev.organism.audit.AuditTrustSelfTest
+      - name: Pillar 3 selftest (native supervisor, drain, supply-chain gate)
+        run: java -cp out dev.organism.exec.SupervisorSelfTest
+      - name: Control plane end-to-end selftest (HTTP)
+        run: java -cp out dev.organism.selftest.ControlPlaneSelfTest
