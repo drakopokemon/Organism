@@ -294,7 +294,7 @@ public final class RolloutSelfTest {
             check("HostFleet: canary added to frozen CellHost", host.cellCount() == 3 && hf.newGenerationSize() == 1,
                     "cells=" + host.cellCount());
             int cw = 0, ow = 0;
-            for (Cell c : host.cellsView()) { if (c.canary) cw = c.weight; else ow += c.weight; }
+            for (Cell hc : host.cellsView()) { if (hc.canary) cw = hc.weight; else ow += hc.weight; }
             check("HostFleet: 5% canary weights applied", cw == 500 && ow == 9500, "canary=" + cw + " old=" + ow);
             hf.promote(Map.of("poolSize", 4.0), 100);
             check("HostFleet: promotion respects baseline (no fleet doubling)",
