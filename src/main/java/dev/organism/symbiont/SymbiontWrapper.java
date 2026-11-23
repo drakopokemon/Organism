@@ -152,7 +152,7 @@ public final class SymbiontWrapper implements AutoCloseable {
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         boolean linux = os.contains("linux");
         if (linux && Files.isReadable(Path.of("/sys/fs/cgroup/cgroup.controllers"))
-                && Files.isDirectory(Path.of("/run/systemd/system")) && hasBin("systemd-run"))
+                && Files.isDirectory(Path.of("/run/systemd/system")) && hasBin("systemd-run") && systemdRunWorks())
             return Sandbox.SYSTEMD_SCOPE;
         if ((linux || os.contains("mac")) && hasBin("sh")) return Sandbox.ULIMIT_V;
         return Sandbox.NONE;
@@ -163,6 +163,17 @@ public final class SymbiontWrapper implements AutoCloseable {
             Process p = new ProcessBuilder("sh", "-c", "command -v " + bin)
                     .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
             return p.waitFor(3, TimeUnit.SECONDS) && p.exitValue() == 0;
+        } catch (Exception e) { return false; }
+    }
+
+
+    /** Не верим наличию бинарника: проверяем что scope реально создаётся (polkit/dbus), bounded 4s. */
+    private static boolean systemdRunWorks() {
+        try {
+            Process p = new ProcessBuilder("systemd-run", "--scope", "--quiet", "true")
+                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+            if (!p.waitFor(4, TimeUnit.SECONDS)) { p.destroyForcibly(); return false; }
+            return p.exitValue() == 0;
         } catch (Exception e) { return false; }
     }
 
