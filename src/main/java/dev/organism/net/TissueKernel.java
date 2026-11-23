@@ -417,6 +417,7 @@ public final class TissueKernel {
             switch (o) {
                 case Genome.LatencyObjective l -> obj.add("{\"type\":\"latency\",\"targetP99Ms\":" + Json.num(l.targetP99Ms()) + "}");
                 case Genome.CostObjective c -> obj.add("{\"type\":\"cost\",\"maxUsdPerMonth\":" + Json.num(c.maxUsdPerMonth()) + "}");
+                case Genome.ThroughputObjective t -> obj.add("{\"type\":\"throughput\",\"targetRps\":" + Json.num(t.targetRps()) + "}");
                 default -> { }
             }
         }
@@ -425,6 +426,7 @@ public final class TissueKernel {
             switch (c) {
                 case Genome.RegionConstraint r -> con.add("{\"type\":\"region\",\"allowedRegion\":" + Json.str(r.allowedRegion()) + "}");
                 case Genome.ResourceConstraint r -> con.add("{\"type\":\"resource\",\"maxRamMb\":" + r.maxRamMb() + "}");
+                case Genome.ForbiddenApisConstraint f -> con.add("{\"type\":\"forbidden_apis\",\"apis\":" + Json.str(f.forbiddenApis()) + "}");
                 default -> { }
             }
         }
@@ -433,6 +435,8 @@ public final class TissueKernel {
             switch (c) {
                 case Genome.ProcessingCapability p -> cap.add("{\"type\":\"processing\",\"minInstances\":" + p.minInstances() + ",\"maxInstances\":" + p.maxInstances() + "}");
                 case Genome.ImmuneCapability i -> cap.add("{\"type\":\"immune\",\"enabled\":" + i.enabled() + "}");
+                case Genome.StorageCapability st -> cap.add("{\"type\":\"storage\",\"shards\":" + st.shards() + ",\"replication\":" + st.replication() + "}");
+                case Genome.BalancingCapability ba -> cap.add("{\"type\":\"balancing\",\"algorithm\":" + Json.str(ba.algorithm()) + "}");
                 default -> { }
             }
         }
