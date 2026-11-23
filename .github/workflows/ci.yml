@@ -77,6 +77,14 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Force JDK 17 on PATH (prove the auto-bootstrap path)
+        shell: pwsh
+        run: |
+          $j17 = $env:JAVA_HOME_17_X64
+          if (-not $j17) { throw "JAVA_HOME_17_X64 not set on runner" }
+          "JAVA_HOME=$j17" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PATH=$j17\bin;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & "$j17\bin\java.exe" -version
       - id: bat
         name: organism.bat (JDK17 -> auto-bootstrap JDK25 -> compile -> setup smoke)
         shell: cmd
@@ -87,6 +95,9 @@ jobs:
         run: |
           $log = if (Test-Path win.log) { Get-Content -Raw win.log } else { "win.log missing" }
           Write-Host $log
+          $head = $log.Substring(0, [Math]::Min(1800, $log.Length))
+          $n = $head -replace '%','%25' -replace "`r",'%0D' -replace "`n",'%0A'
+          Write-Host "::notice title=organism.bat log (head)::$n"
           if ("${{ steps.bat.outcome }}" -ne "success") {
             $tail = $log.Substring([Math]::Max(0, $log.Length - 2400))
             $enc = $tail -replace '%','%25' -replace "`r",'%0D' -replace "`n",'%0A'
