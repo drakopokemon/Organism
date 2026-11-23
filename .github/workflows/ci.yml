@@ -32,6 +32,8 @@ jobs:
           java -cp out dev.organism.selftest.ProductionSelfTest /tmp/organism-test.p12 changeit
       - name: UI + Genome selftest (parser, GUI, cluster/audit, rate-limit)
         run: java -cp out dev.organism.selftest.UiGenomeSelfTest
+      - name: Launcher setup smoke (cross-platform keygen)
+        run: java -cp out dev.organism.Launcher --setup-only
       - name: Chaos test (partition and recovery)
         run: |
           chmod +x bench/chaos.sh
