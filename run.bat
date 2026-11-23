@@ -6,6 +6,7 @@ cd /d "%~dp0"
 where javac >nul 2>nul || (echo Nuzhen JDK 21+ s javac v PATH: https://adoptium.net & exit /b 1)
 for /f "tokens=2" %%v in ('javac -version 2^>^&1') do set VER=%%v
 for /f "delims=.-" %%m in ("%VER%") do set MAJ=%%m
+if %MAJ% LSS 21 (echo [run] ORGANISM trebuet JDK 21+ (virtual threads). U tebya %MAJ%. Postav: winget install EclipseAdoptium.Temurin.21.JDK  ili zapusti organism.bat (auto-bootstrap) & exit /b 1)
 set CFLAGS=
 set RFLAGS=
 if %MAJ% LSS 25 set CFLAGS=--enable-preview --release %MAJ%
