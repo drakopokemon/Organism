@@ -35,6 +35,9 @@ public final class Cell implements AutoCloseable, CellCtl {
     public volatile int weight = 1;
     private volatile boolean quarantined;
     public volatile long served, dropped, errored;
+    public volatile long drained;
+    private final java.util.concurrent.atomic.AtomicInteger inflight = new java.util.concurrent.atomic.AtomicInteger();
+    private volatile boolean draining;
 
     private final HttpServer srv;
     private final ExecutorService exec;
@@ -55,7 +58,9 @@ public final class Cell implements AutoCloseable, CellCtl {
         srv.setExecutor(exec);
         srv.createContext("/work", ex -> {
             long t0 = System.nanoTime();
+            if (draining) { drained++; reply(ex, 503, null); return; }
             if (quarantined || !queue.tryAcquire()) { dropped++; reply(ex, 503, null); return; }
+            inflight.incrementAndGet();
             try {
                 workers.acquire();
                 try {
@@ -78,7 +83,7 @@ public final class Cell implements AutoCloseable, CellCtl {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 reply(ex, 500, null);
-            } finally { queue.release(); }
+            } finally { inflight.decrementAndGet(); queue.release(); }
         });
         srv.createContext("/health", ex -> reply(ex, 200, new byte[]{1}));
         srv.start();
@@ -98,6 +103,23 @@ public final class Cell implements AutoCloseable, CellCtl {
         System.arraycopy(lat, 0, c, 0, latN);
         Arrays.sort(c);
         return c[(int) ((latN - 1) * 0.99)];
+    }
+
+    public boolean draining() { return draining; }
+    public int inflight() { return inflight.get(); }
+
+    /**
+     * Graceful drain (6.2): новые запросы получают 503 (счётчик drained, не dropped),
+     * in-flight дорабатывают до graceMs, затем сервер закрывается. Возвращает фактические ms дренажа.
+     * Аддитивно: без вызова drain() поведение клетки идентично прежнему.
+     */
+    public long drain(long graceMs) {
+        draining = true; weight = 0;
+        long t0 = System.nanoTime();
+        long deadline = t0 + Math.max(0, graceMs) * 1_000_000L;
+        while (inflight.get() > 0 && System.nanoTime() < deadline) LockSupport.parkNanos(1_000_000L);
+        close();
+        return (System.nanoTime() - t0) / 1_000_000L;
     }
 
     private static void reply(HttpExchange ex, int code, byte[] body) throws IOException {
