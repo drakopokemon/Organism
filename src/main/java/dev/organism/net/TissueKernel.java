@@ -1,6 +1,8 @@
 package dev.organism.net;
 
 import dev.organism.api.OrganismApi;
+import dev.organism.security.webauthn.WebAuthn;
+import dev.organism.supplychain.GenomeArtifact;
 import dev.organism.cell.CellHost;
 import dev.organism.cell.Cell;
 import dev.organism.control.Sprt;
@@ -53,21 +55,39 @@ import java.util.function.Supplier;
  *   --otlp-endpoint <url> --otlp-interval-ms <n>
  *   --control-plane <url> --control-token <t> --control-poll-ms <n> --control-timeout-ms <n>
  *       6.1 uplink: зеркалит risky-мутации в control plane (four-eyes/Raft-аудит), применяет remote-решения
+ *   --genome-artifact <file> --genome-pub <b64>  столп 1: подписанный CBOR-геном (Ed25519), fail-closed вместо YAML
+ *   --webauthn-enforce --webauthn-rp <rpId> --webauthn-origins <csv> --webauthn-creds <file>
+ *       6.3 FIDO2: approve только с подписью YubiKey по SHA-256 карточки (требует --api-port; GUI: SIGN (FIDO2))
  */
 public final class TissueKernel {
-    private static final Set<String> BOOL_FLAGS = Set.of("secure", "immune-enforce", "rollout");
+    private static final Set<String> BOOL_FLAGS = Set.of("secure", "immune-enforce", "rollout", "webauthn-enforce");
+
+    /** Столп 1 supply chain: открывает подписанный CBOR-артефакт генома. FAIL-CLOSED: нет ключа/битая подпись -> исключение, узел НЕ стартует. */
+    public static Genome loadVerifiedArtifact(String file, String pubB64) throws Exception {
+        if (pubB64 == null || pubB64.isBlank())
+            throw new SecurityException("--genome-artifact requires --genome-pub (fail-closed)");
+        byte[] art = Files.readAllBytes(Path.of(file));
+        return GenomeArtifact.open(art, GenomeArtifact.publicFromB64(pubB64));
+    }
 
     public static void main(String[] args) throws Exception {
         var a = parse(args);
 
         Genome genome = null;
         String genomePath = a.getOrDefault("genome", "genome.yaml");
-        try {
-            genome = Genome.fromFile(Path.of(genomePath));
-            System.out.println("[GENOME] Loaded from " + genomePath + " | Objectives: " + genome.objectives.size() + ", Constraints: " + genome.constraints.size());
-        } catch (Exception e) {
-            System.err.println("[GENOME] Failed to load " + genomePath + ": " + e.getMessage());
-            System.err.println("[GENOME] Falling back to default hardcoded parameters.");
+        if (a.containsKey("genome-artifact")) {
+            // Столп 1: подписанный CBOR-геном. Битая подпись -> exception -> процесс падает (fail-closed, без fallback).
+            genome = loadVerifiedArtifact(a.get("genome-artifact"), a.get("genome-pub"));
+            System.out.println("[GENOME] Signed artifact VERIFIED (Ed25519/CBOR): " + a.get("genome-artifact")
+                    + " | Objectives: " + genome.objectives.size() + ", Constraints: " + genome.constraints.size());
+        } else {
+            try {
+                genome = Genome.fromFile(Path.of(genomePath));
+                System.out.println("[GENOME] Loaded from " + genomePath + " | Objectives: " + genome.objectives.size() + ", Constraints: " + genome.constraints.size());
+            } catch (Exception e) {
+                System.err.println("[GENOME] Failed to load " + genomePath + ": " + e.getMessage());
+                System.err.println("[GENOME] Falling back to default hardcoded parameters.");
+            }
         }
 
         int port = Integer.parseInt(a.getOrDefault("port", "7100"));
@@ -313,6 +333,46 @@ public final class TissueKernel {
                     agentsSup, genomeSup, fg, manualTick, a.get("tls-keystore"), a.get("tls-pass"),
                     clusterSup, auditSup, true);
             System.out.println("[API] listening :" + extra.api.port() + (a.containsKey("tls-keystore") ? " TLS" : ""));
+            if (a.containsKey("webauthn-enforce") || a.containsKey("webauthn-creds")) {
+                // 6.3: FIDO2 на узле (opt-in). Без флагов — legacy RBAC approve, поведение не меняется.
+                final WebAuthn wa = new WebAuthn();
+                final Path credsFile = a.containsKey("webauthn-creds") ? Path.of(a.get("webauthn-creds")) : null;
+                if (credsFile != null && Files.exists(credsFile)) {
+                    for (String ln : Files.readAllLines(credsFile)) {
+                        if (ln.isBlank()) continue;
+                        String[] f = ln.split(":");
+                        if (f.length < 3) continue;
+                        byte[] spki = Base64.getDecoder().decode(f[2]);
+                        java.security.PublicKey pub;
+                        try { pub = java.security.KeyFactory.getInstance("EC").generatePublic(new java.security.spec.X509EncodedKeySpec(spki)); }
+                        catch (java.security.GeneralSecurityException e) { pub = java.security.KeyFactory.getInstance("Ed25519").generatePublic(new java.security.spec.X509EncodedKeySpec(spki)); }
+                        byte[] cose = pub instanceof java.security.interfaces.ECPublicKey ec ? WebAuthn.coseFromEc(ec) : WebAuthn.coseFromEd(pub);
+                        wa.register(f[0], f[1], cose);
+                    }
+                }
+                String rp = a.getOrDefault("webauthn-rp", "localhost");
+                int ap = extra.api.port();
+                Set<String> origins = new LinkedHashSet<>();
+                if (a.containsKey("webauthn-origins")) {
+                    for (String o : a.get("webauthn-origins").split(",")) if (!o.isBlank()) origins.add(o.trim());
+                } else {
+                    for (String scheme : new String[]{"https", "http"})
+                        for (String host : new String[]{rp, "127.0.0.1"}) {
+                            boolean def = (scheme.equals("https") && ap == 443) || (scheme.equals("http") && ap == 80);
+                            origins.add(scheme + "://" + host + (def ? "" : ":" + ap));
+                        }
+                }
+                extra.api.enableWebAuthn(wa, a.containsKey("webauthn-enforce"), rp, origins, (cid, user) -> {
+                    if (credsFile == null) return;
+                    try {
+                        var cred = wa.credential(cid);
+                        String line = cid + ":" + user + ":" + Base64.getEncoder().encodeToString(cred.pub().getEncoded()) + "\n";
+                        Files.writeString(credsFile, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    } catch (IOException e) { System.err.println("[API] webauthn creds persist failed: " + e.getMessage()); }
+                });
+                System.out.println("[API] WebAuthn " + (a.containsKey("webauthn-enforce") ? "ENFORCED" : "optional")
+                        + " rpId=" + rp + " creds=" + wa.size() + " origins=" + origins);
+            }
         }
 
         if (a.containsKey("otlp-endpoint")) {
