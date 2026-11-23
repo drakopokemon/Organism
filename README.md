@@ -213,3 +213,119 @@ Native Image: без динамической загрузки классов, �
   (canary/adopt/revert). Оба слоя детерминированы при фиксированном seed.
 - Это не weekend project: продакшн-доводка (парсинг генома, реальный routing репликации, mTLS для TCP-плоскостей,
   container-sandbox для недоверенных симбионтов) — roadmap.
+
+---
+
+# ORGANISM 6.0 — шесть столпов (JDK-only)
+
+Всё ниже реализовано на чистом JDK (javac, Temurin 25 в CI). Внешних зависимостей НЕТ.
+Замороженные контракты (Genome/EvolutionEngine/Membership/Wire/CellHost/StorageHost) не изменены;
+все новые возможности — аддитивные и opt-in: **дефолтный запуск без новых флагов ведёт себя как раньше**.
+
+## Архитектура
+
+```
+                 +--------------------------------------------------------+
+                 | CONTROL PLANE (3-5 узлов, opt-in ControlPlaneServer)   |
+                 |  Raft (порядок) -> AuditLog (hash-chain) -> Merkle->TSA|
+                 |  Envelope / SPRT / Four-eyes+WebAuthn / CRL endpoint   |
+                 +---------------+------------------------+---------------+
+                                 | mTLS-мосты (24h серты) |
+        +------------------------+-------+      +---------+----------------------+
+        | РЕГИОН A (gossip intra-region) |      | РЕГИОН B (gossip intra-region) |
+        |  supernodes -- Wire.Sync ------+------+-- supernodes                   |
+        |  +--------------------------+  |      |                                |
+        |  | NativeSupervisor (Java)  |  |      |  verify Ed25519/cosign -> exec |
+        |  |  epoch=N+1 -> env -> cell|  |      |  crun/nobody opt-in, drain     |
+        |  |  FencedStorage(epoch)    |  |      |                                |
+        |  +--------------------------+  |      |                                |
+        +--------------------------------+      +--------------------------------+
+```
+
+## Маппинг spec -> JDK-реализация
+
+| Столп | Спека 6.0 | Реализация (только JDK) |
+|---|---|---|
+| 1. Genome & Supply Chain | CBOR + Ed25519, Sigstore/cosign | supplychain.Cbor (канонический RFC7049-subset), GenomeArtifact (Ed25519, fail-closed, CLI genkey/sign/verify), BinaryVerifier (ED25519 native; COSIGN — opt-in subprocess, fail-closed если cosign нет) |
+| 2. Control Plane | Raft, Envelope, SPRT | raft.RaftNode (+RaftStore file/mem, RaftNet in-mem/TCP, RaftAuditBridge идемпотентный replay), control.Envelope (+EnvelopeAutoApprover через существующий gate), control.Sprt (Wald на bounded log-latency) |
+| 3. Execution & Isolation | Go-демон + crun + nobody | exec.NativeSupervisor (Java): verify-gate, epoch env, graceful drain SIGTERM->SIGKILL, backoff; crun/runuser opt-in subprocess, fail-closed если нет |
+| 4. Data Plane | Fencing tokens, immutable agents | data.EpochFence + FencedStorage НАД замороженным Wire/StorageHost; handoff под общим локом — split-brain исключён; параметры в env, не в образе |
+| 5. Substrate | Иерархический gossip, CA 24h, CRL | net.hier.Hierarchy/RegionBridge/TlsBridge (батчевые Wire.Sync через замороженный Membership API), security.ca.JdkCa (keytool -gencert, 24h, CRL в trust manager -> mTLS) |
+| 6. Audit & Trust | FIDO2, four-eyes, Merkle+TSA | security.webauthn.WebAuthn (ES256/EdDSA, COSE, signCount, challenge=SHA256 карточки), control.FourEyesGate (opt-in, 2 разных человека), audit.MerkleTree (RFC6962-style) + audit.Tsa/AuditAnchoring (Ed25519-токены, hourly) |
+
+## Честные обоснования (без маркетинга)
+
+- **SWIM не O(N^2).** SWIM-lite — infection-style, суммарно O(N log N). Иерархия нужна не для асимптотики, а для **WAN**: RTT/loss/цена межрегионального канала и локализация churn-штормов. HierarchySelfTest меряет WAN-пересечения при churn 0.5%/тик: flat ~7/8 трафика crosses WAN, hierarchical — только мосты (кратно меньше), конвергенция сохраняется.
+- **SPRT на log-latency.** P99 heavy-tailed: голое среднее врёт. Тест Вальда на log(t/c) с обрезкой инкремента (clip): один выброс не переворачивает решение. maxN -> INCONCLUSIVE -> остаёмся на контроле (fail-closed).
+- **Raft != неотказуемость.** Raft даёт единый порядок лога. Неотказуемость — подписи людей (WebAuthn поверх SHA-256 карточки мутации) + Merkle-корень в TSA. Скомпрометированный лидер может писать системные события, но без подписей людей аудитор это видит мгновенно.
+- **Fencing НАД Wire.** Wire sealed заморожен — эпохи не в протоколе, а в обёртке storage и env супервизора. Запись со старой эпохой отвергается до попадания в StorageHost.
+- **TSA — JDK-эквивалент RFC3161**, не ASN.1/TSP: Ed25519-подписанный CBOR {root,ts,serial}. Для юридической силы в проде подключайте внешний RFC3161 TSA через тот же AnchorStore (аддитивно).
+- **CA на keytool**, не BouncyCastle: keytool поставляется с JDK. CRL проверяется и в verify(), и в каждом mTLS-handshake (кастомный X509TrustManager).
+
+## Threat model
+
+| Угроза | Механизм защиты | Проверка в CI |
+|---|---|---|
+| Подмена генома/бинарника | Ed25519 fail-closed до старта | SupplyChainSelfTest, SupervisorSelfTest |
+| Форк аудита / два лидера | Raft majority commit, term/fencing | RaftSelfTest (kill/partition) |
+| Split-brain stateful-агентов | EpochFence + FencedStorage под общим локом | DataPlaneSelfTest |
+| Подчистка лога админом | hash-chain + .head anchor + Merkle/TSA serial/ts | AuditTrustSelfTest (tamper/truncate) |
+| Украденный/клонированный ключ человека | signCount monotonic, challenge=SHA256 карточки, origin/rpId | ControlSelfTest |
+| Один человек продавил рискованную мутацию | four-eyes opt-in: 2 разных userHandle | ControlSelfTest, ControlPlaneSelfTest |
+| Скомпрометированный узел в gossip | CRL + 24h серты, mTLS needClientAuth | CaSelfTest (revoked handshake rejected) |
+| DoS через API | body-limit 413, loopback-only control plane, RBAC opt-in | ControlPlaneSelfTest |
+| Утечка параметров в образ | параметры только env/CLI при старте | SupervisorSelfTest (EPOCH env) |
+
+Остаточные риски (честно): loopback control plane без RBAC = доверенный хост; TSA-ключ на том же хосте — для банка выносите TSA в отдельный контур; cosign/crun — subprocess, их наличие проверяется fail-closed.
+
+## Runbook
+
+### Supply chain
+```bash
+java -cp out dev.organism.supplychain.GenomeArtifact genkey genome-key
+java -cp out dev.organism.supplychain.GenomeArtifact sign genome.yaml genome-key.key genome.artifact
+java -cp out dev.organism.supplychain.GenomeArtifact verify genome.artifact genome-key.pub
+```
+
+### Control plane (opt-in, отдельный процесс)
+```bash
+java -cp out dev.organism.control.ControlPlaneServer --port 7470 --dir cp-data --four-eyes --envelope envelope.cfg --ca-dir ca-data [--rbac-file rbac.txt]
+# 3-узловой кластер: cp1: --id cp1 --peers cp2@host2:7471,cp3@host3:7471  (-Dorganism.raft.port=7471 на каждом)
+curl -s localhost:7470/health
+curl -s -XPOST localhost:7470/propose -d 'DEPLOY|cell-7 rollout'
+curl -s -XPOST localhost:7470/audit/anchor
+curl -s localhost:7470/audit/root
+```
+envelope.cfg:
+```
+poolSize:8:24:arm:0.5
+cacheMb:64:1024:*:0.3
+!unsafeMode
+```
+
+### CA / отзыв узла
+```bash
+java -cp out dev.organism.security.ca.JdkCa init ca-data changeit
+java -cp out dev.organism.security.ca.JdkCa issue ca-data changeit edge-42 edge-42.local
+java -cp out dev.organism.security.ca.JdkCa revoke ca-data changeit <serialHex>
+curl -s -XPOST 'localhost:7470/crl/revoke?serial=<serialHex>'
+```
+
+### Супервизор клетки (программно)
+```java
+new NativeSupervisor("cell-7", List.of("/opt/cells/cell"))
+    .verify(BinaryVerifier.Mode.ED25519, blob, sig, pub)  // fail-closed
+    .env("ORGANISM_PARAMS", "{\"poolSize\":24}")           // параметры НЕ в образе
+    .dropNobody(true)                                      // opt-in
+    .start();
+// handoff: fence.allocate -> новый агент epoch N+1, старый отвергается FencedStorage
+```
+
+### Аудит-якоря
+AuditAnchoring.startHourly(executor) — раз в час Merkle-корень -> TSA-токен -> anchors.b64.
+Проверка: AuditLog.verify(file, secret) + AuditAnchoring.verifyLatest(tsaPub) + AnchorStore.verifyChain(pub).
+
+## CI (23 шага)
+Compile -> Launcher -> Bootstrap17 -> Net -> Cell -> Storage -> Organism -> Production -> UI+Genome -> Launcher smoke -> Chaos ->
+**SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E**.
+Все новые selftest'ы детерминированные: Raft — in-memory transport с ручными tick; WebAuthn — синтетический EC-ключ; SPRT — seeded Random(2026).
