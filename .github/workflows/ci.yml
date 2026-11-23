@@ -15,6 +15,8 @@ jobs:
         run: |
           javac -Xlint:-options -d out $(find src/main/java -name '*.java')
           cp -r src/main/resources/* out/
+      - name: Launcher compile check (cross-platform)
+        run: javac -d /tmp/launch-check Launch.java
       - name: Net selftest (SWIM-lite membership)
         run: java -cp out dev.organism.net.NetSelfTest
       - name: Cell selftest (evolution + immune, deterministic)
