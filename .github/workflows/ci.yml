@@ -61,3 +61,5 @@ jobs:
         run: java -cp out dev.organism.exec.SupervisorSelfTest
       - name: Control plane end-to-end selftest (HTTP)
         run: java -cp out dev.organism.selftest.ControlPlaneSelfTest
+      - name: Uplink selftest (kernel gate <-> control plane, 6.1)
+        run: java -cp out dev.organism.control.UplinkSelfTest
