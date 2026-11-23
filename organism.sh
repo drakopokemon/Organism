@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# ORGANISM one-command launch (Linux/macOS). Auto-bootstrap JDK 21+ при необходимости. ./organism.sh [nodes]
+# ORGANISM one-command launch (Linux/macOS). Auto-bootstrap Temurin 25 LTS при необходимости. ./organism.sh [nodes]
 set -euo pipefail
 cd "$(dirname "$0")"
 command -v javac >/dev/null || { echo "[organism] Нужен JDK для bootstrap: https://adoptium.net"; exit 1; }
 mkdir -p out_boot
 javac -encoding UTF-8 -nowarn -d out_boot src/main/java/dev/organism/tools/JdkBootstrap.java
 JDKHOME=$(java -cp out_boot dev.organism.tools.JdkBootstrap "$PWD/.organism/jdk")
-[ -n "$JDKHOME" ] || { echo "[organism] JDK 21+ не получен. Поставь: https://adoptium.net"; exit 1; }
+[ -n "$JDKHOME" ] || { echo "[organism] JDK 25 не получен. Поставь: https://adoptium.net"; exit 1; }
 JAVAC="$JDKHOME/bin/javac"; JAVA="$JDKHOME/bin/java"
 V=$("$JAVAC" -version 2>&1 | sed -E 's/javac ([0-9]+).*/\1/')
 CFLAGS=""; RFLAGS=""
