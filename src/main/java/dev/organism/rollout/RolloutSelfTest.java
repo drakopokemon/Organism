@@ -1,6 +1,8 @@
 package dev.organism.rollout;
 
 import dev.organism.cell.Cell;
+import dev.organism.cell.CellHost;
+import dev.organism.net.Membership;
 import dev.organism.control.FourEyesGate;
 import dev.organism.control.Sprt;
 import dev.organism.data.EpochFence;
@@ -279,6 +281,32 @@ public final class RolloutSelfTest {
             check("new generation survives drain", fleet.newGeneration().size() == 2 && fleet.size() == 2, "");
         } finally {
             fleet.close();
+        }
+
+        // --- HostFleet: раскатка поверх замороженного CellHost (аддитивный API) ---
+        var membership = new Membership("127.0.0.1:7999", 7, (to, msg) -> { }, (t, node, from, to, inc) -> { });
+        var host = new CellHost(membership, 0, 7, 120, (t, msg) -> { });
+        try {
+            host.pauseEvolver(true);
+            var hf = new HostFleet(host, new Cell.Genes(2, 512, 64, 500));
+            hf.spawnCanary(Map.of("poolSize", 4.0));
+            hf.weights(5, 5);
+            check("HostFleet: canary added to frozen CellHost", host.cellCount() == 3 && hf.newGenerationSize() == 1,
+                    "cells=" + host.cellCount());
+            int cw = 0, ow = 0;
+            for (Cell c : host.cellsView()) { if (c.canary) cw = c.weight; else ow += c.weight; }
+            check("HostFleet: 5% canary weights applied", cw == 500 && ow == 9500, "canary=" + cw + " old=" + ow);
+            hf.promote(Map.of("poolSize", 4.0), 100);
+            check("HostFleet: promotion respects baseline (no fleet doubling)",
+                    hf.newGenerationSize() == 2 && host.cellCount() == 4, "cells=" + host.cellCount());
+            hf.drainOld(200);
+            check("HostFleet: old generation drained, fleet back to baseline",
+                    host.cellCount() == 2 && hf.newGenerationSize() == 2, "cells=" + host.cellCount());
+            hf.rollback();
+            check("HostFleet: rollback restores base genes", hf.currentParams().get("poolSize") == 2.0,
+                    "params=" + hf.currentParams());
+        } finally {
+            host.close();
         }
 
         System.out.println(failed == 0 ? "\nROLLOUT SELFTEST PASSED (" + total + " checks)"
