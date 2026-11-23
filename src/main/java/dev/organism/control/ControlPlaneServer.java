@@ -280,6 +280,17 @@ public final class ControlPlaneServer implements AutoCloseable {
                     }
                     send(ex, 200, sb.append(']').toString());
                 }
+                case "/mutations/status" -> {
+                    if (!method.equals("GET") || !allowed(ex, RbacPolicy.Action.VIEW)) { send(ex, 403, err("forbidden")); return; }
+                    String pid = q.get("id");
+                    if (pid == null) { send(ex, 400, err("id required")); return; }
+                    HumanApprovalGate.Proposal p = gate.get(pid);
+                    if (p == null) { send(ex, 404, err("unknown proposal")); return; }
+                    send(ex, 200, "{\"id\":" + Json.str(p.id) + ",\"status\":\"" + p.status
+                            + "\",\"approvals\":" + four.approvalsCount(pid)
+                            + ",\"fourEyes\":" + four.requiresFourEyes(pid)
+                            + ",\"decidedBy\":" + Json.str(p.decidedBy) + "}");
+                }
                 default -> send(ex, 404, err("not found"));
             }
         } catch (SecurityException se) {
