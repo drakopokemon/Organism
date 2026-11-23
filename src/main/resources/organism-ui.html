@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ORGANISM // living infrastructure</title>
+<style>
+:root{
+  --bg:#05080a; --panel:rgba(16,24,28,.72); --line:rgba(0,255,170,.14);
+  --acc:#00ffaa; --acc2:#00d4ff; --warn:#ffb020; --bad:#ff3b6b; --txt:#cfe9e2; --dim:#5d7a72;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:radial-gradient(1200px 800px at 70% -10%,#0a1f1a 0%,var(--bg) 55%),var(--bg);
+  color:var(--txt); font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  overflow-x:hidden;
+}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.05;
+  background-image:linear-gradient(var(--acc) 1px,transparent 1px),linear-gradient(90deg,var(--acc) 1px,transparent 1px);
+  background-size:42px 42px;mask-image:radial-gradient(circle at 50% 30%,#000,transparent 80%)}
+header{display:flex;align-items:center;gap:18px;padding:16px 26px;border-bottom:1px solid var(--line);
+  backdrop-filter:blur(8px);position:sticky;top:0;z-index:20;background:rgba(5,8,10,.7)}
+.helix{width:34px;height:34px;position:relative;flex:0 0 auto}
+.helix i{position:absolute;left:50%;top:0;width:3px;height:100%;transform-origin:center}
+.helix i::before,.helix i::after{content:"";position:absolute;left:-6px;width:15px;height:3px;border-radius:2px;background:var(--acc);box-shadow:0 0 8px var(--acc)}
+.helix i::before{top:20%}.helix i::after{top:70%;background:var(--acc2);box-shadow:0 0 8px var(--acc2)}
+.helix i:nth-child(1){transform:translateX(-50%) rotate(0deg);animation:spin 3s linear infinite}
+.helix i:nth-child(2){transform:translateX(-50%) rotate(60deg);animation:spin 3s linear infinite reverse}
+.helix i:nth-child(3){transform:translateX(-50%) rotate(120deg);animation:spin 4s linear infinite}
+@keyframes spin{to{transform:translateX(-50%) rotate(360deg)}}
+h1{font-size:19px;letter-spacing:5px;font-weight:700;color:#eafff7;text-shadow:0 0 18px rgba(0,255,170,.5)}
+h1 span{color:var(--acc)}
+.sub{color:var(--dim);font-size:11px;letter-spacing:2px}
+.spacer{flex:1}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 13px;border:1px solid var(--line);border-radius:20px;font-size:12px;background:rgba(0,255,170,.05)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--acc);box-shadow:0 0 10px var(--acc);animation:pulse 1.6s infinite}
+.dot.bad{background:var(--bad);box-shadow:0 0 10px var(--bad)}
+.dot.warn{background:var(--warn);box-shadow:0 0 10px var(--warn)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+main{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:16px;padding:20px 26px;max-width:1700px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;position:relative;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.4)}
+.card::after{content:"";position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--acc),transparent);opacity:.5}
+.card h2{font-size:11px;letter-spacing:3px;color:var(--acc);text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.card h2 .tag{margin-left:auto;color:var(--dim);font-size:10px;letter-spacing:1px}
+.wide{grid-column:span 2}.full{grid-column:1/-1}
+canvas{display:block;width:100%}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.stat{background:rgba(0,255,170,.04);border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center}
+.stat .v{font-size:26px;font-weight:700;color:#eafff7;text-shadow:0 0 14px rgba(0,255,170,.4)}
+.stat .l{font-size:10px;color:var(--dim);letter-spacing:1px;text-transform:uppercase;margin-top:3px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:var(--dim);font-weight:400;font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:6px 8px;border-bottom:1px solid rgba(0,255,170,.06)}
+.badge{display:inline-block;padding:2px 9px;border-radius:12px;font-size:10px;letter-spacing:1px;font-weight:700}
+.b-healthy{background:rgba(0,255,170,.15);color:var(--acc);border:1px solid var(--acc)}
+.b-degraded{background:rgba(255,176,32,.15);color:var(--warn);border:1px solid var(--warn)}
+.b-quarantined{background:rgba(255,59,107,.15);color:var(--bad);border:1px solid var(--bad)}
+.b-alive{background:rgba(0,212,255,.12);color:var(--acc2);border:1px solid var(--acc2)}
+.b-dead{background:rgba(255,59,107,.12);color:var(--bad);border:1px solid var(--bad)}
+.b-suspect{background:rgba(255,176,32,.12);color:var(--warn);border:1px solid var(--warn)}
+.prop{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;background:rgba(0,0,0,.25)}
+.prop .top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.prop .id{color:var(--acc2);font-weight:700}
+.risk{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
+.risk i{display:block;height:100%;background:linear-gradient(90deg,var(--warn),var(--bad))}
+.prop .params{font-size:11px;color:var(--dim);margin-bottom:9px;word-break:break-all}
+.btns{display:flex;gap:8px}
+button{cursor:pointer;border:1px solid var(--line);background:rgba(0,255,170,.08);color:var(--acc);padding:6px 14px;border-radius:8px;font:inherit;font-size:11px;letter-spacing:1px;transition:.15s}
+button:hover{background:rgba(0,255,170,.2);box-shadow:0 0 14px rgba(0,255,170,.3)}
+button.rej{color:var(--bad);border-color:rgba(255,59,107,.4);background:rgba(255,59,107,.08)}
+button.rej:hover{background:rgba(255,59,107,.2);box-shadow:0 0 14px rgba(255,59,107,.3)}
+.feed{max-height:260px;overflow-y:auto;font-size:11px}
+.feed .ev{padding:5px 0;border-bottom:1px solid rgba(0,255,170,.06);display:flex;gap:8px}
+.feed .ev .t{color:var(--dim);flex:0 0 64px}
+.feed .ev .e{color:var(--acc2);flex:0 0 130px}
+.feed .ev .d{color:var(--txt);word-break:break-all}
+.kv{display:flex;flex-wrap:wrap;gap:8px}
+.kv .chip{border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:11px;background:rgba(0,212,255,.05)}
+.kv .chip b{color:var(--acc2)}
+.empty{color:var(--dim);font-size:12px;padding:14px 0;text-align:center}
+#login{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(3,6,8,.92);backdrop-filter:blur(10px)}
+#login .box{width:380px;padding:34px;border:1px solid var(--line);border-radius:16px;background:var(--panel);text-align:center;box-shadow:0 0 60px rgba(0,255,170,.15)}
+#login h3{letter-spacing:4px;color:var(--acc);margin-bottom:6px}
+#login p{color:var(--dim);font-size:11px;margin-bottom:20px}
+#login input{width:100%;padding:11px;border:1px solid var(--line);border-radius:9px;background:rgba(0,0,0,.4);color:var(--txt);font:inherit;margin-bottom:14px}
+#login button{width:100%;padding:11px}
+#login .err{color:var(--bad);font-size:11px;min-height:16px;margin-top:10px}
+.scroll{max-height:300px;overflow-y:auto}
+::-webkit-scrollbar{width:7px}::-webkit-scrollbar-thumb{background:rgba(0,255,170,.25);border-radius:4px}
+@media(max-width:1100px){main{grid-template-columns:1fr}.wide{grid-column:span 1}.stats{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="login">
+  <div class="box">
+    <div class="helix" style="margin:0 auto 16px"><i></i><i></i><i></i></div>
+    <h3>ORGANISM</h3>
+    <p>Вставь Bearer-токен (ADMIN / OPERATOR / VIEWER)</p>
+    <input id="tok" type="password" placeholder="bearer token" autocomplete="off">
+    <button id="loginBtn">ВОЙТИ В ОРГАНИЗМ</button>
+    <div class="err" id="loginErr"></div>
+  </div>
+</div>
+<header>
+  <div class="helix"><i></i><i></i><i></i></div>
+  <div><h1>ORGAN<span>ISM</span></h1><div class="sub">LIVING INFRASTRUCTURE // CONTROL PLANE</div></div>
+  <div class="spacer"></div>
+  <div class="pill"><span class="dot" id="connDot"></span><span id="connTxt">connecting</span></div>
+  <div class="pill"><span id="nodeCount">0</span>&nbsp;nodes</div>
+  <div class="pill" id="rolePill">role: -</div>
+  <button id="logout">выйти</button>
+</header>
+<main>
+  <div class="card wide">
+    <h2>Cluster topology <span class="tag">gossip mesh / immune state</span></h2>
+    <canvas id="topo" height="320"></canvas>
+  </div>
+  <div class="card">
+    <h2>Vitals</h2>
+    <div class="stats" style="grid-template-columns:repeat(2,1fr)">
+      <div class="stat"><div class="v" id="sP99">-</div><div class="l">p99 ms</div></div>
+      <div class="stat"><div class="v" id="sCells">-</div><div class="l">cells</div></div>
+      <div class="stat"><div class="v" id="sMem">-</div><div class="l">free MB</div></div>
+      <div class="stat"><div class="v" id="sPend">-</div><div class="l">pending</div></div>
+    </div>
+    <h2 style="margin-top:16px">p99 timeline</h2>
+    <canvas id="chart" height="110"></canvas>
+  </div>
+  <div class="card full">
+    <h2>Human approval queue <span class="tag">risk-gated mutations / ADMIN only</span></h2>
+    <div id="props"><div class="empty">нет ожидающих мутаций</div></div>
+  </div>
+  <div class="card">
+    <h2>Immune system</h2>
+    <div class="scroll"><table><thead><tr><th>node</th><th>state</th></tr></thead><tbody id="immune"></tbody></table></div>
+  </div>
+  <div class="card">
+    <h2>Evolution / agents</h2>
+    <div class="scroll"><table><thead><tr><th>agent</th><th>fitness</th><th>canary</th><th>params</th></tr></thead><tbody id="agents"></tbody></table></div>
+  </div>
+  <div class="card">
+    <h2>Genome <span class="tag">declarative rules</span></h2>
+    <div id="genome" class="kv"></div>
+  </div>
+  <div class="card wide">
+    <h2>Audit chain <span class="tag" id="auditBadge">hash-chain HMAC</span></h2>
+    <div class="feed" id="audit"></div>
+  </div>
+  <div class="card">
+    <h2>Symbiont / export</h2>
+    <div id="sym" class="kv"></div>
+  </div>
+</main>
+<script>
+var TOKEN = sessionStorage.getItem("org_token") || "";
+var p99hist = [];
+var cluster = {nodes:[]};
+var anim = 0;
+function hdr(){ var h = {}; if(TOKEN) h["Authorization"] = "Bearer " + TOKEN; return h; }
+function el(id){ return document.getElementById(id); }
+function txt(node, s){ node.textContent = s; }
+function showLogin(msg){ el("login").style.display = "flex"; if(msg) txt(el("loginErr"), msg); }
+function hideLogin(){ el("login").style.display = "none"; }
+async function jget(path){
+  var r = await fetch(path, {headers: hdr()});
+  if(r.status === 401){ showLogin("неверный токен"); throw new Error("401"); }
+  if(!r.ok) throw new Error(r.status);
+  return await r.json();
+}
+async function decide(id, d){
+  var r = await fetch("/decide?id=" + encodeURIComponent(id) + "&decision=" + d, {method:"POST", headers: hdr()});
+  if(r.status === 403){ alert("APPROVE доступен только ADMIN"); }
+  else if(!r.ok){ alert("ошибка: " + r.status); }
+  poll();
+}
+function badge(cls, label){ var s = document.createElement("span"); s.className = "badge b-" + cls; txt(s, label); return s; }
+function renderTopo(){
+  var c = el("topo"), ctx = c.getContext("2d");
+  var W = c.clientWidth, Hh = 320; c.width = W * devicePixelRatio; c.height = Hh * devicePixelRatio;
+  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  ctx.clearRect(0,0,W,Hh);
+  var nodes = cluster.nodes || []; var n = nodes.length; if(!n) return;
+  var cx = W/2, cy = Hh/2, R = Math.min(W,Hh)/2 - 46;
+  var pos = [];
+  for(var i=0;i<n;i++){ var a = -Math.PI/2 + i*2*Math.PI/n; pos.push([cx+R*Math.cos(a), cy+R*Math.sin(a)]); }
+  anim += 0.02;
+  ctx.lineWidth = 1;
+  for(var i=0;i<n;i++) for(var k=i+1;k<n;k++){
+    if(nodes[i].status==="ALIVE" && nodes[k].status==="ALIVE"){
+      var g = ctx.createLinearGradient(pos[i][0],pos[i][1],pos[k][0],pos[k][1]);
+      g.addColorStop(0,"rgba(0,255,170,.05)"); g.addColorStop(0.5,"rgba(0,212,255,.22)"); g.addColorStop(1,"rgba(0,255,170,.05)");
+      ctx.strokeStyle = g; ctx.beginPath(); ctx.moveTo(pos[i][0],pos[i][1]); ctx.lineTo(pos[k][0],pos[k][1]); ctx.stroke();
+      var t = (anim + (i+k)*0.13) % 1;
+      var px = pos[i][0]+(pos[k][0]-pos[i][0])*t, py = pos[i][1]+(pos[k][1]-pos[i][1])*t;
+      ctx.fillStyle = "rgba(0,255,170,.8)"; ctx.beginPath(); ctx.arc(px,py,2,0,7); ctx.fill();
+    }
+  }
+  for(var i=0;i<n;i++){
+    var nd = nodes[i], x = pos[i][0], y = pos[i][1];
+    var col = nd.health==="QUARANTINED" ? "#ff3b6b" : nd.health==="DEGRADED" ? "#ffb020" : nd.status==="DEAD" ? "#ff3b6b" : nd.status==="SUSPECT" ? "#ffb020" : "#00ffaa";
+    var pr = 10 + Math.sin(anim*2+i)*2;
+    ctx.shadowColor = col; ctx.shadowBlur = 22;
+    ctx.fillStyle = "rgba(5,8,10,.9)"; ctx.beginPath(); ctx.arc(x,y,15,0,7); ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x,y,15,0,7); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x,y,pr*0.4,0,7); ctx.fill();
+    ctx.fillStyle = "#cfe9e2"; ctx.font = "10px monospace"; ctx.textAlign = "center";
+    ctx.fillText(nd.node, x, y+30);
+    ctx.fillStyle = col; ctx.fillText((nd.p99!=null?nd.p99.toFixed(0)+"ms":"") + (nd.cells!=null?" / "+nd.cells+"c":""), x, y+42);
+  }
+}
+function renderChart(){
+  var c = el("chart"), ctx = c.getContext("2d");
+  var W = c.clientWidth, Hh = 110; c.width = W*devicePixelRatio; c.height = Hh*devicePixelRatio;
+  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); ctx.clearRect(0,0,W,Hh);
+  if(p99hist.length < 2) return;
+  var max = Math.max.apply(null, p99hist.concat([1])); var n = p99hist.length;
+  ctx.strokeStyle = "rgba(0,255,170,.1)"; ctx.lineWidth = 1;
+  for(var gy=0;gy<4;gy++){ var yy = gy*Hh/4; ctx.beginPath(); ctx.moveTo(0,yy); ctx.lineTo(W,yy); ctx.stroke(); }
+  ctx.beginPath();
+  for(var i=0;i<n;i++){ var x = i*W/(n-1); var y = Hh - (p99hist[i]/max)*(Hh-12) - 6; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }
+  ctx.strokeStyle = "#00ffaa"; ctx.lineWidth = 2; ctx.shadowColor = "#00ffaa"; ctx.shadowBlur = 10; ctx.stroke(); ctx.shadowBlur = 0;
+  ctx.lineTo(W,Hh); ctx.lineTo(0,Hh); ctx.closePath();
+  var g = ctx.createLinearGradient(0,0,0,Hh); g.addColorStop(0,"rgba(0,255,170,.25)"); g.addColorStop(1,"rgba(0,255,170,0)");
+  ctx.fillStyle = g; ctx.fill();
+}
+function renderProps(data){
+  var box = el("props"); box.innerHTML = "";
+  var ps = (data.proposals||[]).filter(function(p){ return p.status === "PENDING"; });
+  txt(el("sPend"), ps.length);
+  if(!ps.length){ box.innerHTML = '<div class="empty">нет ожидающих мутаций — эволюция автономна в safe-зоне</div>'; return; }
+  ps.forEach(function(p){
+    var d = document.createElement("div"); d.className = "prop";
+    var top = document.createElement("div"); top.className = "top";
+    var id = document.createElement("span"); id.className = "id"; txt(id, p.id + " / " + p.agent);
+    var rk = document.createElement("span"); txt(rk, "risk " + (p.risk*100).toFixed(0) + "%"); rk.style.color = "#ffb020";
+    var bar = document.createElement("div"); bar.className = "risk"; var fill = document.createElement("i"); fill.style.width = Math.min(100,p.risk*100) + "%"; bar.appendChild(fill);
+    top.appendChild(id); top.appendChild(bar); top.appendChild(rk);
+    var pm = document.createElement("div"); pm.className = "params"; txt(pm, JSON.stringify(p.params));
+    var btns = document.createElement("div"); btns.className = "btns";
+    var ok = document.createElement("button"); txt(ok, "APPROVE"); ok.onclick = function(){ decide(p.id, "approve"); };
+    var no = document.createElement("button"); no.className = "rej"; txt(no, "REJECT"); no.onclick = function(){ decide(p.id, "reject"); };
+    btns.appendChild(ok); btns.appendChild(no);
+    d.appendChild(top); d.appendChild(pm); d.appendChild(btns); box.appendChild(d);
+  });
+}
+function renderImmune(agents){
+  var tb = el("immune"); tb.innerHTML = "";
+  var im = agents.immune || {}; var keys = Object.keys(im);
+  if(!keys.length){ tb.innerHTML = '<tr><td colspan="2" class="empty">все узлы здоровы</td></tr>'; }
+  keys.forEach(function(k){
+    var tr = document.createElement("tr"); var a = document.createElement("td"); txt(a,k);
+    var b = document.createElement("td"); var st = im[k]; b.appendChild(badge(st.toLowerCase(), st));
+    tr.appendChild(a); tr.appendChild(b); tb.appendChild(tr);
+  });
+}
+function renderAgents(agents){
+  var tb = el("agents"); tb.innerHTML = "";
+  (agents.agents||[]).forEach(function(a){
+    var tr = document.createElement("tr");
+    var c1 = document.createElement("td"); txt(c1, a.id);
+    var c2 = document.createElement("td"); txt(c2, (a.fitness!=null?a.fitness.toFixed(3):"-"));
+    var c3 = document.createElement("td"); c3.appendChild(a.canary ? badge("degraded","CANARY") : badge("healthy","STABLE"));
+    var c4 = document.createElement("td"); c4.style.fontSize = "10px"; c4.style.color = "#5d7a72"; txt(c4, JSON.stringify(a.params));
+    tr.appendChild(c1); tr.appendChild(c2); tr.appendChild(c3); tr.appendChild(c4); tb.appendChild(tr);
+  });
+  if(!(agents.agents||[]).length) tb.innerHTML = '<tr><td colspan="4" class="empty">evolution layer выключен (--approval-risk)</td></tr>';
+}
+function renderGenome(g){
+  var box = el("genome"); box.innerHTML = "";
+  function chip(label, val){ var d = document.createElement("div"); d.className = "chip"; var b = document.createElement("b"); txt(b, label + " "); d.appendChild(b); d.appendChild(document.createTextNode(val)); box.appendChild(d); }
+  (g.objectives||[]).forEach(function(o){
+    if(o.type==="latency") chip("p99 <", o.targetP99Ms + "ms");
+    else if(o.type==="cost") chip("cost <", "$" + o.maxUsdPerMonth);
+    else if(o.type==="throughput") chip("rps >", o.targetRps);
+  });
+  (g.constraints||[]).forEach(function(c){
+    if(c.type==="region") chip("region", c.allowedRegion);
+    else if(c.type==="resource") chip("RAM <", c.maxRamMb + "MB");
+    else if(c.type==="forbidden_apis") chip("no-api", c.apis);
+  });
+  (g.capabilities||[]).forEach(function(c){
+    if(c.type==="processing") chip("proc", c.minInstances + "-" + c.maxInstances);
+    else if(c.type==="storage") chip("storage", c.shards + "sh/R" + c.replication);
+    else if(c.type==="balancing") chip("bal", c.algorithm);
+    else if(c.type==="immune") chip("immune", c.enabled ? "on":"off");
+  });
+}
+function renderAudit(a){
+  var badgeEl = el("auditBadge");
+  txt(badgeEl, a.verified ? "CHAIN VERIFIED" : "CHAIN UNVERIFIED");
+  badgeEl.style.color = a.verified ? "#00ffaa" : "#ffb020";
+  var box = el("audit"); box.innerHTML = "";
+  (a.events||[]).slice().reverse().forEach(function(e){
+    var d = document.createElement("div"); d.className = "ev";
+    var t = document.createElement("span"); t.className = "t"; txt(t, "#" + e.seq);
+    var ev = document.createElement("span"); ev.className = "e"; txt(ev, e.event);
+    var dd = document.createElement("span"); dd.className = "d"; txt(dd, e.detail);
+    d.appendChild(t); d.appendChild(ev); d.appendChild(dd); box.appendChild(d);
+  });
+  if(!(a.events||[]).length) box.innerHTML = '<div class="empty">аудит выключен (--audit-path)</div>';
+}
+function renderSym(metrics){
+  var box = el("sym"); box.innerHTML = "";
+  function chip(l,v){ var d=document.createElement("div"); d.className="chip"; var b=document.createElement("b"); txt(b,l+" "); d.appendChild(b); d.appendChild(document.createTextNode(v)); box.appendChild(d); }
+  var m = metrics || {};
+  chip("symbiont events", m.symbiont_events||0);
+  chip("circuit open", m.circuit_open||0);
+  chip("gossip rejected", m.gossip_rejected||0);
+  chip("snapshots", m.snapshots||0);
+  chip("otlp push", m.otlp_push||0);
+  chip("mutations", m.mutations||0);
+}
+function parseMetrics(text){
+  var out = {}; var map = {
+    organism_symbiont_events_total:"symbiont_events", organism_immune_quarantine_total:"circuit_open",
+    organism_gossip_rejected_total:"gossip_rejected", organism_snapshots_total:"snapshots",
+    organism_otlp_push_total:"otlp_push", organism_mutations_total:"mutations"
+  };
+  (text||"").split("\n").forEach(function(line){
+    if(line.indexOf("#")===0) return;
+    var name = line.split("{")[0].split(" ")[0];
+    if(map[name]){ var v = parseFloat(line.trim().split(" ").pop()); out[map[name]] = (out[map[name]]||0) + (isNaN(v)?0:v); }
+  });
+  return out;
+}
+async function poll(){
+  try{
+    var health = await jget("/health");
+    el("connDot").className = "dot"; txt(el("connTxt"), "live");
+    var res = await Promise.allSettled([jget("/cluster"), jget("/agents"), jget("/genome"), jget("/mutations"), jget("/audit"), fetch("/metrics",{headers:hdr()}).then(function(r){return r.ok?r.text():"";})]);
+    if(res[0].status==="fulfilled"){ cluster = res[0].value; txt(el("nodeCount"), (cluster.nodes||[]).length); }
+    if(res[1].status==="fulfilled"){
+      var ag = res[1].value; txt(el("sP99"), ag.p99!=null?ag.p99.toFixed(1):"-"); txt(el("sCells"), ag.cells!=null?ag.cells:"-");
+      p99hist.push(ag.p99||0); if(p99hist.length>60) p99hist.shift();
+      renderImmune(ag); renderAgents(ag); renderChart();
+    }
+    if(res[2].status==="fulfilled") renderGenome(res[2].value);
+    if(res[3].status==="fulfilled") renderProps(res[3].value);
+    if(res[4].status==="fulfilled") renderAudit(res[4].value);
+    if(res[5].status==="fulfilled") renderSym(parseMetrics(res[5].value));
+    var cl = cluster.nodes||[]; var self = cl.filter(function(n){return n.self;})[0];
+    txt(el("sMem"), self && self.memFree!=null ? self.memFree : "-");
+  }catch(e){
+    if(String(e.message)!=="401"){ el("connDot").className = "dot bad"; txt(el("connTxt"), "offline"); }
+  }
+}
+function loop(){ renderTopo(); requestAnimationFrame(loop); }
+el("loginBtn").onclick = async function(){
+  TOKEN = el("tok").value.trim(); sessionStorage.setItem("org_token", TOKEN);
+  try{ await jget("/agents"); hideLogin(); txt(el("rolePill"), "role: authenticated"); poll(); }
+  catch(e){ showLogin("токен не принят (401/403)"); }
+};
+el("tok").addEventListener("keydown", function(e){ if(e.key==="Enter") el("loginBtn").click(); });
+el("logout").onclick = function(){ TOKEN=""; sessionStorage.removeItem("org_token"); showLogin(""); };
+if(TOKEN){ hideLogin(); txt(el("rolePill"), "role: authenticated"); }
+poll(); setInterval(poll, 2000); loop();
+</script>
+</body>
+</html>
