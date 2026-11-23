@@ -22,6 +22,11 @@ java Launch.java 5     # 5 узлов
 Скрипт сам компилирует (JDK), генерит PSK/admin-токен/PKCS12 (один раз, в .organism/),
 поднимает кластер с secure gossip + TLS API + hash-chain аудитом + human-in-the-loop и печатает URL и токен.
 
+
+> **JDK 17?** `organism.bat` / `organism.sh` сами скачают portable Temurin 21 в `.organism/jdk`
+> (через `JdkBootstrap`, совместимый с 17) и соберут проект им. Вручную: `winget install EclipseAdoptium.Temurin.21.JDK`.
+> Ядро проекта — virtual threads (Java 21+), на 17 оно физически не компилируется; это требование, не баг.
+
 ## GUI (живой дашборд)
 
 Открой https://127.0.0.1:9101/ (TLS self-signed — прими сертификат), вставь токен из вывода organism.sh.
