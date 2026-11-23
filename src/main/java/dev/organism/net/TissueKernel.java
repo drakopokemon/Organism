@@ -2,6 +2,8 @@ package dev.organism.net;
 
 import dev.organism.api.OrganismApi;
 import dev.organism.cell.CellHost;
+import dev.organism.control.ControlPlaneClient;
+import dev.organism.evolution.ControlPlaneUplink;
 import dev.organism.evolution.EvolutionController;
 import dev.organism.evolution.EvolutionEngine;
 import dev.organism.evolution.EvolutionJournal;
@@ -43,6 +45,8 @@ import java.util.function.Supplier;
  *   --symbiont-backoff-ms <n> --symbiont-max-restarts <n>
  *   --snapshot-dir <dir> --snapshot-every <ticks>
  *   --otlp-endpoint <url> --otlp-interval-ms <n>
+ *   --control-plane <url> --control-token <t> --control-poll-ms <n> --control-timeout-ms <n>
+ *       6.1 uplink: зеркалит risky-мутации в control plane (four-eyes/Raft-аудит), применяет remote-решения
  */
 public final class TissueKernel {
     private static final Set<String> BOOL_FLAGS = Set.of("secure", "immune-enforce");
@@ -163,6 +167,23 @@ public final class TissueKernel {
             }
         }
 
+        ControlPlaneUplink uplink = null;
+        long controlPollEvery = 0;
+        if (a.containsKey("control-plane")) {
+            if (gate == null) {
+                System.err.println("[UPLINK] --control-plane requires --approval-risk with genome; skipping uplink");
+            } else {
+                var cpClient = new ControlPlaneClient(a.get("control-plane"), a.get("control-token"),
+                        Integer.parseInt(a.getOrDefault("control-timeout-ms", "3000")));
+                uplink = new ControlPlaneUplink(cpClient, gate, safeAudit, metrics);
+                extra.uplink = uplink;
+                long pollMs = Long.parseLong(a.getOrDefault("control-poll-ms", "2000"));
+                controlPollEvery = Math.max(1, pollMs / Math.max(1, periodMs));
+                safeAudit.accept("CONTROL_UPLINK_ENABLED", "url=" + a.get("control-plane"));
+                System.out.println("[UPLINK] control-plane=" + a.get("control-plane") + " pollEvery=" + controlPollEvery + " ticks");
+            }
+        }
+
         MigrationManager mm = null;
         long snapEvery = 0;
         if (a.containsKey("snapshot-dir")) {
@@ -266,6 +287,8 @@ public final class TissueKernel {
         final EvolutionEngine fengine = engine;
         final HumanApprovalGate fgate = gate;
         final ParetoFront fpareto = pareto;
+        final ControlPlaneUplink fuplink = uplink;
+        final long fControlEvery = controlPollEvery;
         var closed = new AtomicBoolean();
         Runnable shutdown = () -> {
             if (!closed.compareAndSet(false, true)) return;
@@ -273,6 +296,7 @@ public final class TissueKernel {
             try { journal.close(); } catch (IOException ignored) { }
             if (extra.api != null) extra.api.close();
             if (extra.symbiont != null) extra.symbiont.close();
+            if (extra.uplink != null) extra.uplink.close();
             if (extra.otlp != null) { try { extra.otlp.close(); } catch (Exception ignored) { } }
             if (extra.evoJournal != null) extra.evoJournal.close();
             if (extra.audit != null && !extra.auditDead) {
@@ -322,6 +346,8 @@ public final class TissueKernel {
                 metrics.gauge("organism_mutations_pending", fgate.pendingCount());
             }
 
+            if (fuplink != null && tick % fControlEvery == 0) fuplink.poll();
+
             if (fmm != null && fSnapEvery > 0 && tick % fSnapEvery == 0) {
                 try {
                     if (fengine != null) {
@@ -347,7 +373,7 @@ public final class TissueKernel {
 
     private static final class Extras {
         OrganismApi api; SymbiontWrapper symbiont; AutoCloseable otlp;
-        AuditLog audit; EvolutionJournal evoJournal; boolean auditDead;
+        AuditLog audit; EvolutionJournal evoJournal; boolean auditDead; ControlPlaneUplink uplink;
     }
 
     private static void safeAudit(Extras x, ObservabilityExporter metrics, String ev, String d) {
