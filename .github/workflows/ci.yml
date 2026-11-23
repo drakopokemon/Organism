@@ -26,7 +26,7 @@ jobs:
       - name: Production selftest (security, immune, symbiont, migration, obs, api)
         run: |
           keytool -genkeypair -alias organism -keyalg RSA -keysize 2048 -storetype PKCS12 \
-            -keystore /tmp/organism-test.p12 -storepass changeit -dname "CN=localhost" -validity 2
+            -keystore /tmp/organism-test.p12 -storepass changeit -dname "CN=localhost" -ext SAN=dns:localhost,ip:127.0.0.1 -validity 2
           java -cp out dev.organism.selftest.ProductionSelfTest /tmp/organism-test.p12 changeit
       - name: Chaos test (partition and recovery)
         run: |
