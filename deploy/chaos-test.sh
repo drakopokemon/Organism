@@ -38,7 +38,7 @@ WORK=$(mktemp -d)
 RBAC="$WORK/rbac.txt"; echo "$HASH:ADMIN" > "$RBAC"
 KS="$WORK/ks.p12"
 keytool -genkeypair -alias organism -keyalg RSA -keysize 2048 -storetype PKCS12 \
-  -keystore "$KS" -storepass changeit -dname "CN=localhost" -validity 2 >/dev/null 2>&1
+  -keystore "$KS" -storepass changeit -dname "CN=localhost" -ext SAN=dns:localhost,ip:127.0.0.1 -validity 2 >/dev/null 2>&1
 AUD1="$WORK/audit1.jsonl"
 SNAPS="$WORK/snaps"
 java -cp out dev.organism.net.TissueKernel --port 7201 --cells-port 8201 --seed 11 \
