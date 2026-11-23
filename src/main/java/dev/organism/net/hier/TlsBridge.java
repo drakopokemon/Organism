@@ -20,6 +20,10 @@ import java.util.function.Consumer;
 public final class TlsBridge {
     private TlsBridge() {}
 
+    public record Handle(int port, SSLServerSocket socket) implements AutoCloseable {
+        @Override public void close() throws IOException { socket.close(); }
+    }
+
     public static RegionBridge.WanLink client(SSLContext ctx, InetSocketAddress remote, String remoteRegion) {
         return (region, summary) -> {
             try (SSLSocket s = (SSLSocket) ctx.getSocketFactory().createSocket()) {
@@ -32,12 +36,12 @@ public final class TlsBridge {
                 out.write(b);
                 out.flush();
             } catch (IOException e) {
-                // fail-open для лОКАЛЬНОГО gossip: регион живёт автономно, сводка повторится
+                // локальный gossip живёт автономно; сводка повторится в следующем периоде
             }
         };
     }
 
-    public static AutoCloseable server(SSLContext ctx, int port, Consumer<Wire.Sync> onSync) throws IOException {
+    public static Handle server(SSLContext ctx, int port, Consumer<Wire.Sync> onSync) throws IOException {
         SSLServerSocket ss = (SSLServerSocket) ctx.getServerSocketFactory().createServerSocket(port);
         ss.setNeedClientAuth(true);
         Thread.ofVirtual().name("tls-bridge-accept").start(() -> {
@@ -61,6 +65,6 @@ public final class TlsBridge {
                 }
             }
         });
-        return () -> ss.close();
+        return new Handle(ss.getLocalPort(), ss);
     }
 }
