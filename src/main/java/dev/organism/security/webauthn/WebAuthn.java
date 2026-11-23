@@ -134,7 +134,7 @@ public final class WebAuthn {
     public static byte[] coseFromEd(PublicKey pub) {
         java.security.interfaces.EdECPublicKey ed = (java.security.interfaces.EdECPublicKey) pub;
         EdECPoint pt = ed.getPoint();
-        byte[] raw = pt.y().toByteArray();
+        byte[] raw = pt.getY().toByteArray();
         int off = (raw.length > 32 && raw[0] == 0) ? 1 : 0;
         int len = Math.min(32, raw.length - off);
         byte[] le = new byte[32];
