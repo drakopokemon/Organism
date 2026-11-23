@@ -417,7 +417,24 @@ java -cp out dev.organism.net.TissueKernel --port 7101 --cells-port 8101 --genom
 - SPRT сравнивает p99 канарейки и контрольной группы; `maxN` -> INCONCLUSIVE -> остаёмся на контроле (fail-closed).
 - Impact — эвристика приоритизации, не доказательство безопасности. Жёсткие границы по-прежнему проверяет `MutationGuard`.
 
-## CI (25 шагов)
+## 5.1 Масштаб: 5000 узлов в CI (ScaleSelfTest)
+
+Каждый прогон CI гоняет оверлей на **5000 узлов / 25 регионов** с churn 0.5%/тик (20 тиков, seeded):
+
+| Метрика | Flat SWIM | Иерархия | Порог в CI |
+|---|---|---|---|
+| Доля WAN-сообщений | `96.0% | `0.88% | hier < 5%, flat > 90% |
+| Снижение WAN-трафика | — | **x109.6** | > 10x |
+| Средний fanout узла | 3 | 3.027 | <= kIntra + 0.2 |
+| Стабильность супернод при churn | — | 0.995 | > 0.90 |
+| Регионы с живым мостом после churn | — | 25/25 | все |
+
+Честно: это **детерминированная оверлейная симуляция** (937 мс на CI-раннере), а не 5000 живых процессов.
+Она доказывает свойства алгоритма (локализация WAN, ограниченный fanout мостов, стабильность выборов при churn),
+а не производительность железа. Сходимость SWIM и partition/heal проверяются отдельно: `NetSelfTest`, `HierarchySelfTest`, chaos-suite.
+Запуск: `java -cp out dev.organism.net.hier.ScaleSelfTest`.
+
+## CI (26 шагов)
 Compile -> Launcher -> Bootstrap17 -> Net -> Cell -> Storage -> Organism -> Production -> UI+Genome -> Launcher smoke -> Chaos ->
-**SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E -> Uplink(6.1) -> Rollout(6.2 impact/canary/SPRT/four-eyes/drain)**.
+**SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E -> Uplink(6.1) -> Rollout(6.2 impact/canary/SPRT/four-eyes/drain) -> Scale(5000 nodes WAN/churn)**.
 Все новые selftest'ы детерминированные: Raft — in-memory transport с ручными tick; WebAuthn — синтетический EC-ключ; SPRT — seeded Random(2026).
