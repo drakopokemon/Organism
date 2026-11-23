@@ -325,7 +325,31 @@ new NativeSupervisor("cell-7", List.of("/opt/cells/cell"))
 AuditAnchoring.startHourly(executor) — раз в час Merkle-корень -> TSA-токен -> anchors.b64.
 Проверка: AuditLog.verify(file, secret) + AuditAnchoring.verifyLatest(tsaPub) + AnchorStore.verifyChain(pub).
 
-## CI (23 шага)
+## 6.1 Uplink: узел <-> Control Plane (opt-in)
+
+Замороженные контракты не тронуты; без новых флагов поведение идентично 6.0.
+
+```
+TissueKernel (edge-узел)                      ControlPlaneServer (3-5 узлов)
+  EvolutionEngine -> EvolutionController        Raft -> AuditLog -> Merkle/TSA
+  risk > threshold -> HumanApprovalGate         FourEyesGate (WebAuthn) / Envelope / SPRT
+        |  PENDING proposal                          ^
+        +---- ControlPlaneUplink.poll() -------------+
+             POST /mutations/submit   (зеркало proposal)
+             GET  /mutations/status?id= (poll решения)
+             APPROVED/REJECTED -> gate.decide -> canary apply
+```
+
+Флаги узла: --control-plane http://cp:7470 [--control-token t] [--control-poll-ms 2000] [--control-timeout-ms 3000]
+(требует --approval-risk + genome; токен узла на CP — роль MUTATE, заголовок X-Organism-Token).
+
+Честная семантика:
+- Решение принимает тот, кто первый: CP (four-eyes/WebAuthn) или локальный API /decide. Осиротевший remote proposal истекает по TTL CP.
+- CP down != стоп эволюции: risky-мутации ждут локального HITL (fail-open к локальному gate), organism_control_uplink_up=0, аудит CONTROL_UPLINK_DOWN.
+- Метрики: organism_control_uplink_up, organism_control_mirrored_total/pending, organism_control_remote_approved_total/rejected_total/stale_total, organism_control_uplink_errors_total/down_total.
+- Аудит узла: CONTROL_UPLINK_ENABLED/UP/DOWN, CONTROL_PROPOSAL_MIRRORED, CONTROL_REMOTE_APPROVED/REJECTED/STALE; аудит CP: MUTATION_PENDING/MUTATION_APPLIED через Raft -> Merkle/TSA.
+
+## CI (24 шага)
 Compile -> Launcher -> Bootstrap17 -> Net -> Cell -> Storage -> Organism -> Production -> UI+Genome -> Launcher smoke -> Chaos ->
-**SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E**.
+**SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E -> Uplink(6.1)**.
 Все новые selftest'ы детерминированные: Raft — in-memory transport с ручными tick; WebAuthn — синтетический EC-ключ; SPRT — seeded Random(2026).
