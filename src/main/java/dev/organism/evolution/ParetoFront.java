@@ -32,6 +32,7 @@ public final class ParetoFront {
             switch (o) {
                 case Genome.LatencyObjective l -> { dirs.put("p99", Direction.MIN); targets.put("p99", l.targetP99Ms()); }
                 case Genome.CostObjective c -> { dirs.put("usd", Direction.MIN); targets.put("usd", c.maxUsdPerMonth()); }
+                case Genome.ThroughputObjective t -> { dirs.put("rps", Direction.MAX); targets.put("rps", t.targetRps()); }
                 default -> { }
             }
         }
