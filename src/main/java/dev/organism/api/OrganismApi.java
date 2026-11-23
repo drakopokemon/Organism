@@ -4,10 +4,12 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsServer;
+import dev.organism.control.FourEyesGate;
 import dev.organism.evolution.HumanApprovalGate;
 import dev.organism.obs.Json;
 import dev.organism.obs.ObservabilityExporter;
 import dev.organism.security.RbacPolicy;
+import dev.organism.security.webauthn.WebAuthn;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import java.io.IOException;
@@ -19,8 +21,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -30,6 +35,7 @@ import java.util.function.Supplier;
  * HTTP API узла: com.sun.net.httpserver + virtual threads (Loom), только JDK.
  * /health open; /metrics /agents /genome /cluster /audit -> VIEW; /mutations -> MUTATE;
  * /decide -> APPROVE (ADMIN). / и /ui -> GUI (HTML open, данные через auth).
+ * 6.3 opt-in FIDO2: enableWebAuthn() -> /webauthn/status|register|challenge; approve только с assertion (enforce).
  * Bearer auth на каждый data-endpoint: 401/403/fail-closed. Ответы — байты UTF-8.
  * Hardening: per-IP token-bucket rate limit (429), body limit (413), security headers, CSP на GUI.
  * Опциональный TLS: HttpsServer + PKCS12.
@@ -44,6 +50,36 @@ public final class OrganismApi implements AutoCloseable {
     private final Runnable manualTick;
     private final String uiHtml;
     private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+
+    // --- 6.3: opt-in FIDO2/WebAuthn на узле (дефолт null = legacy RBAC-only, поведение не меняется) ---
+    private volatile WebAuthn webauthn;
+    private volatile boolean webauthnEnforce;
+    private volatile String webauthnRpId = "localhost";
+    private volatile Set<String> webauthnOrigins = Set.of();
+    private volatile RegisterHook webauthnHook;
+
+    /** Callback персиста credential'ов (ядерный --webauthn-creds). */
+    public interface RegisterHook { void registered(String credentialId, String user); }
+
+    /**
+     * Столп 6: FIDO2-подпись карточки мутации (challenge = SHA-256 карточки, человек подписывает то, что видит).
+     * enforce=true: approve без валидной assertion -> 403 fail-closed; reject остаётся RBAC (отказ безопасен).
+     * enforce=false: assertion опциональна; валидная -> who=webauthn:user, битая -> 403.
+     * Вызывать после конструктора; повторный вызов запрещён. Four-eyes (две подписи) — на Control Plane.
+     */
+    public synchronized OrganismApi enableWebAuthn(WebAuthn wa, boolean enforce, String rpId,
+                                                   Set<String> origins, RegisterHook hook) {
+        if (webauthn != null) throw new IllegalStateException("webauthn already enabled");
+        this.webauthn = Objects.requireNonNull(wa);
+        this.webauthnEnforce = enforce;
+        this.webauthnRpId = rpId == null || rpId.isBlank() ? "localhost" : rpId;
+        this.webauthnOrigins = Set.copyOf(origins);
+        this.webauthnHook = hook;
+        server.createContext("/webauthn/status", ex -> handle(ex, RbacPolicy.Action.VIEW, this::waStatus));
+        server.createContext("/webauthn/register", ex -> handle(ex, RbacPolicy.Action.APPROVE, this::waRegister));
+        server.createContext("/webauthn/challenge", ex -> handle(ex, RbacPolicy.Action.APPROVE, this::waChallenge));
+        return this;
+    }
 
     public OrganismApi(int port, RbacPolicy rbac, ObservabilityExporter metrics,
                        Supplier<String> agentsJson, Supplier<String> genomeJson,
@@ -215,9 +251,66 @@ public final class OrganismApi implements AutoCloseable {
         else { send(ex, 400, "{\"error\":\"decision must be approve|reject\"}"); return; }
         String tok = bearer(ex);
         String who = "sha256:" + RbacPolicy.sha256Hex(tok == null ? "" : tok).substring(0, 12);
+        String cred = q.get("cred");
+        if (approve && webauthn != null && (webauthnEnforce || cred != null)) {
+            String cd = q.get("cd"), ad = q.get("ad"), sig = q.get("sig");
+            if (cred == null || cd == null || ad == null || sig == null) {
+                send(ex, 403, "{\"error\":\"webauthn assertion required (fail-closed)\"}"); return;
+            }
+            var p = gate.get(id);
+            if (p == null) { send(ex, 404, "{\"error\":\"unknown proposal\"}"); return; }
+            try {
+                byte[] challenge = WebAuthn.challengeFor(FourEyesGate.card(p.id, p.agentId, p.params, p.risk));
+                webauthn.verifyAssertion(cred, b64d(cd), b64d(ad), b64d(sig),
+                        challenge, webauthnOrigins, webauthnRpId, true);
+            } catch (SecurityException | IllegalArgumentException e) {
+                send(ex, 403, "{\"error\":\"webauthn verification failed\"}"); return;
+            }
+            who = "webauthn:" + webauthn.userOf(cred);
+        }
         var st = gate.decide(id, approve, who);
         if (st == null) { send(ex, 404, "{\"error\":\"unknown proposal\"}"); return; }
         send(ex, 200, "{\"id\":" + Json.str(id) + ",\"status\":\"" + st + "\"}");
+    }
+
+    private void waStatus(HttpExchange ex) throws IOException {
+        if (!method(ex, "GET")) return;
+        send(ex, 200, "{\"enabled\":true,\"enforced\":" + webauthnEnforce
+                + ",\"rpId\":" + Json.str(webauthnRpId) + ",\"credentials\":" + webauthn.size() + "}");
+    }
+
+    private void waRegister(HttpExchange ex) throws IOException {
+        if (!method(ex, "POST")) return;
+        var q = query(ex);
+        String id = q.get("id"), user = q.get("user"), cose = q.get("cose");
+        if (id == null || user == null || cose == null) { send(ex, 400, "{\"error\":\"id, user, cose required\"}"); return; }
+        if (!id.matches("[A-Za-z0-9_-]{1,128}")) { send(ex, 400, "{\"error\":\"bad credential id\"}"); return; }
+        if (!user.matches("[A-Za-z0-9_.@-]{1,64}")) { send(ex, 400, "{\"error\":\"bad user\"}"); return; }
+        try { webauthn.register(id, user, b64d(cose)); }
+        catch (IllegalArgumentException e) { send(ex, 400, "{\"error\":\"bad COSE key\"}"); return; }
+        if (webauthnHook != null) webauthnHook.registered(id, user);
+        send(ex, 200, "{\"ok\":true,\"credentials\":" + webauthn.size() + "}");
+    }
+
+    private void waChallenge(HttpExchange ex) throws IOException {
+        if (!method(ex, "GET")) return;
+        if (gate == null) { send(ex, 503, "{\"error\":\"evolution disabled\"}"); return; }
+        String id = query(ex).get("id");
+        if (id == null || !id.matches("[A-Za-z0-9_-]{1,64}")) { send(ex, 400, "{\"error\":\"bad id\"}"); return; }
+        var p = gate.get(id);
+        if (p == null) { send(ex, 404, "{\"error\":\"unknown proposal\"}"); return; }
+        String card = FourEyesGate.card(p.id, p.agentId, p.params, p.risk);
+        String ch = Base64.getUrlEncoder().withoutPadding().encodeToString(WebAuthn.challengeFor(card));
+        send(ex, 200, "{\"id\":" + Json.str(id) + ",\"card\":" + Json.str(card)
+                + ",\"challenge\":" + Json.str(ch) + ",\"rpId\":" + Json.str(webauthnRpId) + "}");
+    }
+
+    /** base64url/base64, padding не обязателен. IllegalArgumentException -> 400/403 выше. */
+    private static byte[] b64d(String s) {
+        String u = s.replace('+', '-').replace('/', '_');
+        int eq = u.indexOf('=');
+        if (eq >= 0) u = u.substring(0, eq);
+        return Base64.getUrlDecoder().decode(u);
     }
 
     private String proposalsJson() {
