@@ -13,7 +13,12 @@ jobs:
           java-version: '25'
       - name: Compile
         run: |
-          javac -Xlint:-options -d out $(find src/main/java -name '*.java')
+          javac -Xlint:-options -d out $(find src/main/java -name '*.java') 2> /tmp/javac.err || {
+            cat /tmp/javac.err
+            msg=$(head -c 2500 /tmp/javac.err | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk 'BEGIN{ORS="%0A"}{print}')
+            echo "::error title=javac failed::$msg"
+            exit 1
+          }
           cp -r src/main/resources/* out/
       - name: Launcher compile check (cross-platform)
         run: javac -d /tmp/launch-check Launch.java
