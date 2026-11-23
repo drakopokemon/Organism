@@ -133,7 +133,7 @@ public final class NativeSupervisor implements AutoCloseable {
         try {
             if (p.waitFor(drainGraceMs, TimeUnit.MILLISECONDS)) {
                 state = State.STOPPED;
-                return p.exitValue() == 0;
+                return true; // вышел после SIGTERM в пределах grace = graceful (143 нормален для SIGTERM)
             }
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
         p.destroyForcibly();
