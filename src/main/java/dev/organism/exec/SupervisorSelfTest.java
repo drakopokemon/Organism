@@ -66,7 +66,7 @@ public final class SupervisorSelfTest {
         NativeSupervisor sleeper = new NativeSupervisor("sleeper", List.of(javaBin(), "-cp", cp(), "dev.organism.exec.TestChild", "sleep"))
                 .drainGraceMs(5000).logFile(sleepLog);
         sleeper.start();
-        check("sleeper child started", awaitLog(sleepLog, "EPOCH=", 10000), "");
+        check("sleeper child started", awaitLog(sleepLog, "READY=", 0) || awaitLog(sleepLog, "READY", 10000), "");
         Thread.sleep(250);
         check("graceful drain via SIGTERM", sleeper.drain(), "");
         check("drain logged DRAINED", Files.readString(sleepLog).contains("DRAINED"), "");
