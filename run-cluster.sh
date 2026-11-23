@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 command -v javac >/dev/null || { echo "✘ Не найден javac. Установите JDK 21+: https://adoptium.net"; exit 1; }
 V=$(javac -version 2>&1 | sed -E 's/javac ([0-9]+).*/\1/')
+[ "${V:-0}" -ge 21 ] || { echo "✘ ORGANISM требует JDK 21+, найдена: ${V:-?}. Поставь: https://adoptium.net или ./organism.sh"; exit 1; }
 CFLAGS=""; RFLAGS=""
 if [ "${V:-0}" -lt 25 ]; then CFLAGS="--enable-preview --release $V"; RFLAGS="--enable-preview"; fi
 
