@@ -2,6 +2,12 @@ package dev.organism.net;
 
 import dev.organism.api.OrganismApi;
 import dev.organism.cell.CellHost;
+import dev.organism.cell.Cell;
+import dev.organism.control.Sprt;
+import dev.organism.data.EpochFence;
+import dev.organism.rollout.HostFleet;
+import dev.organism.rollout.Impact;
+import dev.organism.rollout.RolloutManager;
 import dev.organism.control.ControlPlaneClient;
 import dev.organism.evolution.ControlPlaneUplink;
 import dev.organism.evolution.EvolutionController;
@@ -49,7 +55,7 @@ import java.util.function.Supplier;
  *       6.1 uplink: зеркалит risky-мутации в control plane (four-eyes/Raft-аудит), применяет remote-решения
  */
 public final class TissueKernel {
-    private static final Set<String> BOOL_FLAGS = Set.of("secure", "immune-enforce");
+    private static final Set<String> BOOL_FLAGS = Set.of("secure", "immune-enforce", "rollout");
 
     public static void main(String[] args) throws Exception {
         var a = parse(args);
@@ -219,6 +225,38 @@ public final class TissueKernel {
                     System.out.println("[t" + t + "] " + msg);
                 });
 
+        RolloutManager rollout = null;
+        HostFleet rolloutFleet = null;
+        long rolloutEvery = 30;
+        if (a.containsKey("rollout")) {
+            if (gate == null || genome == null) {
+                System.err.println("[ROLLOUT] --rollout requires --approval-risk with genome; skipping rollout layer");
+            } else {
+                hostHolder.h.pauseEvolver(true);
+                rolloutFleet = new HostFleet(hostHolder.h, new Cell.Genes(2, 512, 64, 500));
+                Impact.Criticality crit = a.containsKey("criticality-file")
+                        ? Impact.Criticality.fromFile(Path.of(a.get("criticality-file")))
+                        : Impact.Criticality.defaults();
+                var rcfg = new RolloutManager.Config(
+                        Double.parseDouble(a.getOrDefault("rollout-canary-pct", "5")),
+                        Double.parseDouble(a.getOrDefault("rollout-control-pct", "5")),
+                        new double[]{25, 50, 100},
+                        Integer.parseInt(a.getOrDefault("rollout-dwell-ticks", "3")),
+                        Long.parseLong(a.getOrDefault("rollout-drain-ms", "5000")),
+                        Double.parseDouble(a.get("approval-risk")),
+                        targetP99,
+                        Long.parseLong(a.getOrDefault("rollout-max-ticks", "600")),
+                        Double.parseDouble(a.getOrDefault("rollout-max-drop", "0.05")));
+                rollout = new RolloutManager(rolloutFleet, new Sprt(0.05, 0.1, 0.2, 0.3, 2.0, 5000),
+                        gate, null, new EpochFence(), genome.mutationPolicy, crit, rcfg, safeAudit, metrics, null);
+                rolloutEvery = Math.max(1, Long.parseLong(a.getOrDefault("rollout-cooldown-ticks", "30")));
+                safeAudit.accept("ROLLOUT_ENABLED", "canary=" + rcfg.canaryPct + " control=" + rcfg.controlPct
+                        + " threshold=" + rcfg.approvalThreshold);
+                System.out.println("[ROLLOUT] canary-first enabled: " + rcfg.canaryPct + "% canary / "
+                        + rcfg.controlPct + "% control, impact threshold=" + rcfg.approvalThreshold);
+            }
+        }
+
         Thread.ofVirtual().name("wire-rx").start(() -> {
             byte[] buf = new byte[4096];
             var pkt = new DatagramPacket(buf, buf.length);
@@ -289,6 +327,11 @@ public final class TissueKernel {
         final ParetoFront fpareto = pareto;
         final ControlPlaneUplink fuplink = uplink;
         final long fControlEvery = controlPollEvery;
+        final RolloutManager frollout = rollout;
+        final HostFleet frolloutFleet = rolloutFleet;
+        final double fTargetP99 = targetP99;
+        final Genome fgenomeRollout = genome;
+        final long fRolloutEvery = rolloutEvery;
         var closed = new AtomicBoolean();
         Runnable shutdown = () -> {
             if (!closed.compareAndSet(false, true)) return;
@@ -332,6 +375,24 @@ public final class TissueKernel {
             metrics.gauge("organism_p99_ms", hostHolder.h.myP99(), "node", advertise);
             metrics.gauge("organism_mem_free_mb", memFree);
             metrics.gauge("organism_view_size", membership.view().size());
+
+            if (frollout != null) {
+                frollout.tick();
+                var ph = frollout.phase();
+                boolean idle = ph == RolloutManager.Phase.IDLE || ph == RolloutManager.Phase.DONE
+                        || ph == RolloutManager.Phase.ROLLED_BACK || ph == RolloutManager.Phase.REJECTED;
+                if (idle && hostHolder.h.myP99() > fTargetP99 && tick % fRolloutEvery == 0) {
+                    var cur = frolloutFleet.currentParams();
+                    double stepv = fgenomeRollout.mutationPolicy.poolSizeStep();
+                    double next = Math.min(fgenomeRollout.mutationPolicy.poolSizeMax(), cur.get("poolSize") + stepv);
+                    if (next > cur.get("poolSize")) {
+                        var neu = new TreeMap<>(cur);
+                        neu.put("poolSize", next);
+                        frollout.start(advertise, cur, neu, 1, Math.max(1, membership.view().size()));
+                        metrics.inc("organism_rollout_triggers_total", 1);
+                    }
+                }
+            }
 
             if (fengine != null) {
                 double fit = fpareto.scalarize(Map.of("p99", Math.max(hostHolder.h.myP99(), 1e-9), "usd", usd));
