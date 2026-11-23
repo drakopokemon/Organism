@@ -128,7 +128,7 @@ button.rej:hover{background:rgba(255,59,107,.2);box-shadow:0 0 14px rgba(255,59,
     <canvas id="chart" height="110"></canvas>
   </div>
   <div class="card full">
-    <h2>Human approval queue <span class="tag">risk-gated mutations / ADMIN only</span></h2>
+    <h2>Human approval queue <span class="tag">risk-gated mutations / ADMIN only</span><input id="waCred" placeholder="FIDO2 cred id (b64url, опц.)" title="credential id не-resident ключа; resident (YubiKey discoverable) работает без него" style="float:right;width:230px;font-size:10px;background:#0a0f14;border:1px solid #1e2a38;color:#9fb4c8;padding:3px 6px;border-radius:4px"></h2>
     <div id="props"><div class="empty">нет ожидающих мутаций</div></div>
   </div>
   <div class="card">
@@ -154,6 +154,7 @@ button.rej:hover{background:rgba(255,59,107,.2);box-shadow:0 0 14px rgba(255,59,
 </main>
 <script>
 var TOKEN = sessionStorage.getItem("org_token") || "";
+var WA = null;
 var p99hist = [];
 var cluster = {nodes:[]};
 var anim = 0;
@@ -174,6 +175,35 @@ async function decide(id, d){
   else if(!r.ok){ alert("ошибка: " + r.status); }
   poll();
 }
+function b64u(buf){ var b = new Uint8Array(buf), s = ""; for(var i=0;i<b.length;i++) s += String.fromCharCode(b[i]); return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
+function unb64u(s){ s = s.replace(/-/g,"+").replace(/_/g,"/"); while(s.length % 4) s += "="; var bin = atob(s), a = new Uint8Array(bin.length); for(var i=0;i<bin.length;i++) a[i] = bin.charCodeAt(i); return a.buffer; }
+async function waRefresh(){
+  try{ var r = await fetch("/webauthn/status", {headers: hdr()}); WA = r.ok ? await r.json() : null; }catch(e){ WA = null; }
+}
+async function decideFido(id){
+  try{
+    var r = await fetch("/webauthn/challenge?id=" + encodeURIComponent(id), {headers: hdr()});
+    if(!r.ok){ alert("challenge: " + r.status); return; }
+    var ch = await r.json();
+    var allow = []; var cid = (localStorage.getItem("organism_cred_id")||"").trim();
+    if(cid) allow = [{type:"public-key", id: unb64u(cid)}];
+    var a = await navigator.credentials.get({publicKey:{
+      challenge: unb64u(ch.challenge), rpId: ch.rpId, allowCredentials: allow,
+      userVerification: "required", timeout: 60000}});
+    var resp = a.response;
+    var url = "/decide?id=" + encodeURIComponent(id) + "&decision=approve"
+      + "&cred=" + encodeURIComponent(b64u(a.rawId))
+      + "&cd=" + encodeURIComponent(b64u(resp.clientDataJSON))
+      + "&ad=" + encodeURIComponent(b64u(resp.authenticatorData))
+      + "&sig=" + encodeURIComponent(b64u(resp.signature));
+    var d = await fetch(url, {method:"POST", headers: hdr()});
+    if(!d.ok){ var t = await d.text(); alert("FIDO2 approve отклонён: " + d.status + " " + t); }
+    poll();
+  }catch(e){ alert("FIDO2: " + e.message); }
+}
+waRefresh(); setInterval(waRefresh, 5000);
+(function(){ var c = el("waCred"); if(!c) return; c.value = localStorage.getItem("organism_cred_id") || "";
+  c.onchange = function(){ localStorage.setItem("organism_cred_id", c.value.trim()); }; })();
 function badge(cls, label){ var s = document.createElement("span"); s.className = "badge b-" + cls; txt(s, label); return s; }
 function renderTopo(){
   var c = el("topo"), ctx = c.getContext("2d");
@@ -238,9 +268,17 @@ function renderProps(data){
     top.appendChild(id); top.appendChild(bar); top.appendChild(rk);
     var pm = document.createElement("div"); pm.className = "params"; txt(pm, JSON.stringify(p.params));
     var btns = document.createElement("div"); btns.className = "btns";
-    var ok = document.createElement("button"); txt(ok, "APPROVE"); ok.onclick = function(){ decide(p.id, "approve"); };
     var no = document.createElement("button"); no.className = "rej"; txt(no, "REJECT"); no.onclick = function(){ decide(p.id, "reject"); };
-    btns.appendChild(ok); btns.appendChild(no);
+    var waOn = WA && WA.enabled && window.PublicKeyCredential;
+    if(waOn){
+      var sg = document.createElement("button"); txt(sg, "SIGN (FIDO2)"); sg.onclick = function(){ decideFido(p.id); };
+      btns.appendChild(sg);
+    }
+    if(!(waOn && WA.enforced)){
+      var ok = document.createElement("button"); txt(ok, "APPROVE"); ok.onclick = function(){ decide(p.id, "approve"); };
+      btns.appendChild(ok);
+    }
+    btns.appendChild(no);
     d.appendChild(top); d.appendChild(pm); d.appendChild(btns); box.appendChild(d);
   });
 }
