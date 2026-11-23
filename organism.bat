@@ -1,5 +1,5 @@
 @echo off
-rem ORGANISM one-command launch (Windows). Auto-bootstrap JDK 21+ esli nuzhno. organism.bat [nodes]
+rem ORGANISM one-command launch (Windows). Auto-bootstrap Temurin 25 LTS esli nuzhno. organism.bat [nodes]
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 where javac >nul 2>nul || (echo [organism] Nuzhen JDK dlya bootstrap: https://adoptium.net & exit /b 1)
@@ -7,7 +7,7 @@ if not exist out_boot mkdir out_boot
 javac -encoding UTF-8 -nowarn -d out_boot src\main\java\dev\organism\tools\JdkBootstrap.java || (echo [organism] bootstrap compile failed & exit /b 1)
 set "JDKHOME="
 for /f "delims=" %%h in ('java -cp out_boot dev.organism.tools.JdkBootstrap "%CD%\.organism\jdk"') do set "JDKHOME=%%h"
-if not defined JDKHOME (echo [organism] JDK 21+ ne poluchen. Postav: winget install EclipseAdoptium.Temurin.21.JDK & exit /b 1)
+if not defined JDKHOME (echo [organism] JDK 25 ne poluchen. Postav: winget install EclipseAdoptium.Temurin.25.JDK & exit /b 1)
 set "JAVAC=%JDKHOME%\bin\javac.exe"
 set "JAVA=%JDKHOME%\bin\java.exe"
 for /f "tokens=2" %%v in ('"%JAVAC%" -version 2^>^&1') do set VER=%%v
