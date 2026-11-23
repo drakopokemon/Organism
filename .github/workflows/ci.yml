@@ -68,6 +68,8 @@ jobs:
         run: java -cp out dev.organism.selftest.ControlPlaneSelfTest
       - name: Uplink selftest (kernel gate <-> control plane, 6.1)
         run: java -cp out dev.organism.control.UplinkSelfTest
+      - name: Rollout selftest (6.2 impact, canary split, SPRT, four-eyes, drain)
+        run: java -cp out dev.organism.rollout.RolloutSelfTest
 
   windows-smoke:
     runs-on: windows-latest
