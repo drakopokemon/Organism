@@ -68,3 +68,27 @@ jobs:
         run: java -cp out dev.organism.selftest.ControlPlaneSelfTest
       - name: Uplink selftest (kernel gate <-> control plane, 6.1)
         run: java -cp out dev.organism.control.UplinkSelfTest
+
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - id: bat
+        name: organism.bat (JDK17 -> auto-bootstrap JDK25 -> compile -> setup smoke)
+        shell: cmd
+        run: organism.bat --setup-only > win.log 2>&1
+      - name: Windows launcher diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          $log = if (Test-Path win.log) { Get-Content -Raw win.log } else { "win.log missing" }
+          Write-Host $log
+          if ("${{ steps.bat.outcome }}" -ne "success") {
+            $tail = $log.Substring([Math]::Max(0, $log.Length - 2400))
+            $enc = $tail -replace '%','%25' -replace "`r",'%0D' -replace "`n",'%0A'
+            Write-Host "::error title=organism.bat failed::$enc"
+          }
