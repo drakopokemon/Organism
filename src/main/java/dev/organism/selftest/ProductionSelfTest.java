@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -53,7 +54,13 @@ public final class ProductionSelfTest {
         return cond.getAsBoolean();
     }
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
+        try { run(args); }
+        catch (Throwable t) { t.printStackTrace(); System.exit(1); }
+    }
+
+    static void run(String[] args) throws Exception {
+        System.setProperty("jdk.internal.httpclient.disableHostnameVerification", "true");
         System.out.println("\n  ORGANISM production selftest (security, immune, symbiont, migration, obs, api)\n");
         Path tmp = Files.createTempDirectory("organism-prod-selftest");
         transportSecurity();
@@ -272,7 +279,7 @@ public final class ProductionSelfTest {
     }
 
     static HttpResponse<String> req(HttpClient hc, String method, String url, String token) throws Exception {
-        var b = HttpRequest.newBuilder(URI.create(url)).method(method, HttpRequest.BodyPublishers.noBody());
+        var b = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(5)).method(method, HttpRequest.BodyPublishers.noBody());
         if (token != null) b.header("Authorization", "Bearer " + token);
         return hc.send(b.build(), HttpResponse.BodyHandlers.ofString());
     }
