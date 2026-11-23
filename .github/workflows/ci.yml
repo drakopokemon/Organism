@@ -73,6 +73,9 @@ jobs:
       - name: Scale selftest (5000 nodes, hierarchical gossip WAN/churn)
         run: java -cp out dev.organism.net.hier.ScaleSelfTest
 
+      - name: Pillar 1/6 selftest (signed genome artifact + FIDO2 node API)
+        run: java -cp out dev.organism.selftest.WebAuthnApiSelfTest
+
   windows-smoke:
     runs-on: windows-latest
     steps:
