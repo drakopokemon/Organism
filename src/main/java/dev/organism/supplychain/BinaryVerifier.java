@@ -45,10 +45,13 @@ public final class BinaryVerifier {
     }
 
     public static boolean toolAvailable(String tool) {
-        try {
-            Process p = new ProcessBuilder(tool, "version").redirectErrorStream(true).start();
-            p.getInputStream().readAllBytes();
-            return p.waitFor(10, TimeUnit.SECONDS) && p.exitValue() == 0;
-        } catch (Exception e) { return false; }
+        for (String arg : new String[]{"--version", "version"}) {
+            try {
+                Process p = new ProcessBuilder(tool, arg).redirectErrorStream(true).start();
+                p.getInputStream().readAllBytes();
+                if (p.waitFor(10, TimeUnit.SECONDS) && p.exitValue() == 0) return true;
+            } catch (Exception ignored) { }
+        }
+        return false;
     }
 }
