@@ -114,6 +114,19 @@ public final class EvolutionEngine {
         };
     }
 
+    /** v4 additive: params snapshot for risk calculation / API. */
+    public synchronized Map<String, Double> paramsOf(String id) {
+        var a = agents.get(id);
+        return a == null ? null : Map.copyOf(a.params);
+    }
+
+    /** v4 additive: apply params (human-approved mutation or gate rollback). */
+    public synchronized void applyParams(String id, Map<String, Double> p, boolean canary) {
+        var a = agents.get(id);
+        if (a == null) return;
+        agents.put(id, new AgentState(id, new HashMap<>(p), a.fitness, tick, canary));
+    }
+
     public Map<String, AgentState> snapshot() {
         return Collections.unmodifiableMap(agents);
     }
