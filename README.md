@@ -11,9 +11,13 @@
 ## Запуск в одну команду
 
 ```bash
-./organism.sh          # 3 узла: компиляция + генерация PSK/токена/TLS + secured cluster + GUI
-./organism.sh 5        # 5 узлов
+java Launch.java       # ЛЮБАЯ ОС (Windows/Linux/macOS), нужен JDK 21+ на PATH
+java Launch.java 5     # 5 узлов
+# обёртки: organism.bat (Windows cmd)  /  ./organism.sh (Linux/macOS)
 ```
+
+**Windows (cmd/PowerShell):** `organism.bat` или `java Launch.java`. Файл `.sh` в cmd НЕ запускается — это bash.
+**Linux/macOS:** `./organism.sh` или `java Launch.java`. Нужен JDK 21+ (Temurin), `java` на PATH.
 
 Скрипт сам компилирует (JDK), генерит PSK/admin-токен/PKCS12 (один раз, в .organism/),
 поднимает кластер с secure gossip + TLS API + hash-chain аудитом + human-in-the-loop и печатает URL и токен.
