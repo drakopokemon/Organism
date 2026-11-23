@@ -70,6 +70,8 @@ jobs:
         run: java -cp out dev.organism.control.UplinkSelfTest
       - name: Rollout selftest (6.2 impact, canary split, SPRT, four-eyes, drain)
         run: java -cp out dev.organism.rollout.RolloutSelfTest
+      - name: Scale selftest (5000 nodes, hierarchical gossip WAN/churn)
+        run: java -cp out dev.organism.net.hier.ScaleSelfTest
 
   windows-smoke:
     runs-on: windows-latest
