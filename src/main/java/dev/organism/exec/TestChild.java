@@ -21,9 +21,14 @@ public final class TestChild {
             }
             case "sleep" -> {
                 AtomicBoolean stop = new AtomicBoolean(false);
-                Runtime.getRuntime().addShutdownHook(new Thread(() -> stop.set(true)));
+                Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                    stop.set(true);
+                    System.out.println("DRAINED");
+                    System.out.flush();
+                }));
+                System.out.println("READY");
+                System.out.flush();
                 while (!stop.get()) LockSupport.parkNanos(20_000_000L);
-                System.out.println("DRAINED");
             }
             default -> System.exit(2);
         }
