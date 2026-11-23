@@ -360,7 +360,64 @@ TissueKernel (edge-узел)                      ControlPlaneServer (3-5 узл
 - Метрики: organism_control_uplink_up, organism_control_mirrored_total/pending, organism_control_remote_approved_total/rejected_total/stale_total, organism_control_uplink_errors_total/down_total.
 - Аудит узла: CONTROL_UPLINK_ENABLED/UP/DOWN, CONTROL_PROPOSAL_MIRRORED, CONTROL_REMOTE_APPROVED/REJECTED/STALE; аудит CP: MUTATION_PENDING/MUTATION_APPLIED через Raft -> Merkle/TSA.
 
-## CI (24 шага)
+## 6.2 Canary-first Rollout: Impact / SPRT / Drain (opt-in)
+
+Мутация больше не применяется на лету. Полный жизненный цикл из спеки:
+
+```
+p99 > target (Genome)
+   v
+RolloutManager.start() -> spawnCanary(newParams) -> 5% canary / 5% control / 90% base
+   v
+Sprt (Wald, log-latency, clip): BETTER / NOT_BETTER / INCONCLUSIVE
+   v
+Impact = 0.3*StepSize + 0.5*BlastRadius + 0.2*Criticality
+   |-- impact <= threshold -> auto (внутри огибающей)
+   |-- impact >  threshold -> HumanApprovalGate (ADMIN /decide)
+   |-- impact > 0.5        -> FourEyesGate: ДВЕ подписи разных людей (FIDO2/WebAuthn)
+   v
+ROLLOUT 25% -> 50% -> 100% (health-guard: drop-rate и p99 на каждой стадии)
+   v
+EpochFence.allocate -> epoch N+1 -> graceful drain старого поколения -> DONE
+Отказ/деградация/таймаут -> 100% трафика назад на старое поколение (ROLLED_BACK/REJECTED)
+```
+
+Компоненты Impact (все в [0,1]):
+- **StepSize** — `|new-old| / (policyMax-policyMin)` из `Genome.MutationPolicy`. Шаг poolSize 16->24 при 8..48 = **0.2** (относительная дельта 8/16=0.5 соврала бы).
+- **BlastRadius** — доля узлов, которых заденет раскатка (250/5000 = **0.05**).
+- **Criticality** — важность гена. `Genome` заморожен, поэтому критичность живёт в opt-in side-car `--criticality-file` (`poolSize:0.8`, `*:0.5`, `#` — комментарий, fail-closed на мусоре). Дефолты: poolSize 0.8, timeoutMs 0.6, cacheMb 0.5, queueLimit 0.4.
+- Пример из спеки: `0.3*0.2 + 0.5*0.05 + 0.2*0.8 = 0.245` — средний риск, один ADMIN; four-eyes только при `> 0.5`.
+
+Флаги узла (opt-in, требуют `--approval-risk` + genome):
+
+| Флаг | Дефолт | Назначение |
+|---|---|---|
+| `--rollout` | off | canary-first вместо (1+1)-ES в CellHost (`pauseEvolver(true)`); триггер — p99 > target |
+| `--rollout-canary-pct` / `--rollout-control-pct` | 5 / 5 | доли трафика на канарейку и контрольную группу |
+| `--rollout-dwell-ticks` | 3 | тиков на стадию 25/50/100 |
+| `--rollout-drain-ms` | 5000 | grace для in-flight запросов старого поколения |
+| `--rollout-max-ticks` | 600 | предохранитель SPRT: не сошлось — откат |
+| `--rollout-max-drop` | 0.05 | health-guard: drop-rate выше — немедленный откат |
+| `--rollout-cooldown-ticks` | 30 | пауза между раскатками |
+| `--criticality-file <file>` | встроенные дефолты | критичность генов для Impact |
+
+Метрики: `organism_rollout_phase/impact/stage_share`, `organism_rollout_canary_p99/control_p99/canary_drop_rate`,
+`organism_rollout_sprt_llr/sprt_samples`, `organism_rollout_drain_ms/epoch`, `organism_rollouts_total{result}`,
+`organism_rollout_triggers_total/pending_total/approved_total`.
+Аудит: `ROLLOUT_ENABLED/CANARY_START/SPRT_BETTER/PENDING_APPROVAL/AUTO_IN_ENVELOPE/STAGE/HANDOFF/DONE/ABORT/REJECTED`.
+
+```bash
+java -cp out dev.organism.net.TissueKernel --port 7101 --cells-port 8101 --genome genome.yaml \
+  --approval-risk 0.10 --rollout --rollout-canary-pct 5 --rollout-control-pct 5 --audit-path audit.jsonl
+```
+
+Честно:
+- `Cell.drain()` — graceful внутри процесса: новые запросы получают 503 (счётчик `drained`, не `dropped`), in-flight дорабатывают до grace, затем сервер закрывается. Дренаж соединений на L7-балансировщике — забота роутера, не клетки.
+- `HostFleet` работает поверх **замороженного** `CellHost` через аддитивные методы (`cellsView/spawnCell/removeCell/pauseEvolver`). Без `--rollout` ни один из них не вызывается — дефолтное поведение не меняется.
+- SPRT сравнивает p99 канарейки и контрольной группы; `maxN` -> INCONCLUSIVE -> остаёмся на контроле (fail-closed).
+- Impact — эвристика приоритизации, не доказательство безопасности. Жёсткие границы по-прежнему проверяет `MutationGuard`.
+
+## CI (25 шагов)
 Compile -> Launcher -> Bootstrap17 -> Net -> Cell -> Storage -> Organism -> Production -> UI+Genome -> Launcher smoke -> Chaos ->
-**SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E -> Uplink(6.1)**.
+**SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E -> Uplink(6.1) -> Rollout(6.2 impact/canary/SPRT/four-eyes/drain)**.
 Все новые selftest'ы детерминированные: Raft — in-memory transport с ручными tick; WebAuthn — синтетический EC-ключ; SPRT — seeded Random(2026).
