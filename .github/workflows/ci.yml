@@ -23,6 +23,11 @@ jobs:
         run: java -cp out dev.organism.storage.StorageSelfTest
       - name: Organism selftest (simulation, data layer, symbiont)
         run: java -Dstdout.encoding=UTF-8 -cp out dev.organism.Main --selftest
+      - name: Production selftest (security, immune, symbiont, migration, obs, api)
+        run: |
+          keytool -genkeypair -alias organism -keyalg RSA -keysize 2048 -storetype PKCS12 \
+            -keystore /tmp/organism-test.p12 -storepass changeit -dname "CN=localhost" -validity 2
+          java -cp out dev.organism.selftest.ProductionSelfTest /tmp/organism-test.p12 changeit
       - name: Chaos test (partition and recovery)
         run: |
           chmod +x bench/chaos.sh
