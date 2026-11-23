@@ -17,6 +17,10 @@ jobs:
           cp -r src/main/resources/* out/
       - name: Launcher compile check (cross-platform)
         run: javac -d /tmp/launch-check Launch.java
+      - name: Bootstrap JDK17-compat + run check
+        run: |
+          javac --release 17 -d out_boot17 src/main/java/dev/organism/tools/JdkBootstrap.java
+          java -cp out_boot17 dev.organism.tools.JdkBootstrap /tmp/orgjdk
       - name: Net selftest (SWIM-lite membership)
         run: java -cp out dev.organism.net.NetSelfTest
       - name: Cell selftest (evolution + immune, deterministic)
