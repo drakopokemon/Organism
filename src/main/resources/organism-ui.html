@@ -131,6 +131,18 @@ button.rej:hover{background:rgba(255,59,107,.2);box-shadow:0 0 14px rgba(255,59,
     <h2>Human approval queue <span class="tag">risk-gated mutations / ADMIN only</span><input id="waCred" placeholder="FIDO2 cred id (b64url, опц.)" title="credential id не-resident ключа; resident (YubiKey discoverable) работает без него" style="float:right;width:230px;font-size:10px;background:#0a0f14;border:1px solid #1e2a38;color:#9fb4c8;padding:3px 6px;border-radius:4px"></h2>
     <div id="props"><div class="empty">нет ожидающих мутаций</div></div>
   </div>
+  <div class="card full" id="rolloutCard" style="display:none">
+    <h2>Rollout pipeline <span class="tag">canary-first / SPRT / epoch handoff</span><span class="tag" id="rolloutPhase"></span></h2>
+    <div id="rolloutBody"></div>
+  </div>
+  <div class="card" id="controlCard" style="display:none">
+    <h2>Control plane <span class="tag">raft uplink / 6.1</span></h2>
+    <div id="controlBody" class="kv"></div>
+  </div>
+  <div class="card" id="anchorCard" style="display:none">
+    <h2>Audit anchor <span class="tag">hash-chain .head</span></h2>
+    <div id="anchorBody" class="kv"></div>
+  </div>
   <div class="card">
     <h2>Immune system</h2>
     <div class="scroll"><table><thead><tr><th>node</th><th>state</th></tr></thead><tbody id="immune"></tbody></table></div>
@@ -157,6 +169,7 @@ var TOKEN = sessionStorage.getItem("org_token") || "";
 var WA = null;
 var p99hist = [];
 var cluster = {nodes:[]};
+var ROLLOUT = null, METRICS = {};
 var anim = 0;
 function hdr(){ var h = {}; if(TOKEN) h["Authorization"] = "Bearer " + TOKEN; return h; }
 function el(id){ return document.getElementById(id); }
@@ -279,7 +292,9 @@ function renderProps(data){
       btns.appendChild(ok);
     }
     btns.appendChild(no);
-    d.appendChild(top); d.appendChild(pm); d.appendChild(btns); box.appendChild(d);
+    d.appendChild(top); d.appendChild(pm);
+    if(ROLLOUT && ROLLOUT.proposal === p.id && ROLLOUT.impact){ var im=document.createElement("div"); im.className="params"; txt(im,"impact "+(ROLLOUT.impact.impact*100).toFixed(1)+"% [step "+ROLLOUT.impact.step.toFixed(2)+" / blast "+ROLLOUT.impact.blast.toFixed(2)+" / crit "+ROLLOUT.impact.crit.toFixed(2)+"]"+(ROLLOUT.impact.fourEyes?" FOUR-EYES":"")); d.appendChild(im); }
+    d.appendChild(btns); box.appendChild(d);
   });
 }
 function renderImmune(agents){
@@ -353,7 +368,10 @@ function parseMetrics(text){
   var out = {}; var map = {
     organism_symbiont_events_total:"symbiont_events", organism_immune_quarantine_total:"circuit_open",
     organism_gossip_rejected_total:"gossip_rejected", organism_snapshots_total:"snapshots",
-    organism_otlp_push_total:"otlp_push", organism_mutations_total:"mutations"
+    organism_otlp_push_total:"otlp_push", organism_mutations_total:"mutations",
+    organism_rollout_sprt_llr:"sprt_llr", organism_rollout_sprt_samples:"sprt_n",
+    organism_rollout_canary_p99:"canary_p99", organism_rollout_control_p99:"control_p99",
+    organism_rollout_canary_drop_rate:"drop"
   };
   (text||"").split("\n").forEach(function(line){
     if(line.indexOf("#")===0) return;
@@ -362,11 +380,65 @@ function parseMetrics(text){
   });
   return out;
 }
+function chipIn(box,l,v){ var d=document.createElement("div"); d.className="chip"; var b=document.createElement("b"); txt(b,l+" "); d.appendChild(b); d.appendChild(document.createTextNode(v)); box.appendChild(d); }
+function renderRollout(r){
+  el("rolloutCard").style.display="";
+  var m=METRICS||{}, ph=r.phase||"IDLE";
+  var col={IDLE:"#5d7a72",CANARY:"#ffb020",AWAIT_APPROVAL:"#ffb020",ROLLOUT:"#00d4ff",DRAINING:"#00d4ff",DONE:"#00ffaa",REJECTED:"#ff3b6b",ROLLED_BACK:"#ff3b6b"}[ph]||"#5d7a72";
+  var body=el("rolloutBody"); body.innerHTML="";
+  var top=document.createElement("div"); top.style.cssText="display:flex;align-items:center;gap:10px;margin-bottom:10px";
+  var id=document.createElement("span"); id.className="id"; txt(id,(r.id||"-")+" / "+(r.agent||"-"));
+  var bar=document.createElement("div"); bar.className="risk"; var fill=document.createElement("i");
+  var imp=r.impact?r.impact.impact:0; fill.style.width=Math.min(100,imp*100)+"%"; bar.appendChild(fill);
+  var pb=document.createElement("span"); pb.className="badge"; pb.style.borderColor=col; pb.style.color=col; pb.style.background="rgba(0,0,0,.3)"; txt(pb,ph);
+  top.appendChild(id); top.appendChild(bar); top.appendChild(pb); body.appendChild(top);
+  var chips=document.createElement("div"); chips.className="kv";
+  if(r.impact){ chipIn(chips,"step",r.impact.step.toFixed(2)); chipIn(chips,"blast",r.impact.blast.toFixed(2)); chipIn(chips,"crit",r.impact.crit.toFixed(2)); chipIn(chips,"impact",(imp*100).toFixed(1)+"%"); if(r.impact.fourEyes) chipIn(chips,"gate","FOUR-EYES"); }
+  chipIn(chips,"share",(r.share||0)+"%"); chipIn(chips,"epoch",r.epoch!=null?r.epoch:"-");
+  if(m.sprt_llr!=null) chipIn(chips,"SPRT llr",(+m.sprt_llr).toFixed(2));
+  if(m.sprt_n!=null) chipIn(chips,"n",Math.round(m.sprt_n));
+  if(m.canary_p99!=null) chipIn(chips,"canary p99",(+m.canary_p99).toFixed(0)+"ms");
+  if(m.control_p99!=null) chipIn(chips,"control p99",(+m.control_p99).toFixed(0)+"ms");
+  if(m.drop!=null) chipIn(chips,"drop",((+m.drop)*100).toFixed(1)+"%");
+  body.appendChild(chips);
+  var stages=document.createElement("div"); stages.style.cssText="margin-top:10px;display:flex;gap:6px;align-items:center;font-size:10px;flex-wrap:wrap";
+  var seq=["CANARY 5%","25%","50%","100%","DRAIN epoch+1"];
+  var cur=ph==="CANARY"?0:ph==="ROLLOUT"?(r.share>=100?3:r.share>=50?2:1):(ph==="DRAINING"||ph==="DONE")?4:-1;
+  seq.forEach(function(s,i){
+    var d=document.createElement("div"); d.className="chip"; d.style.padding="4px 8px";
+    if(i===cur){ d.style.borderColor="#00ffaa"; d.style.color="#00ffaa"; d.style.boxShadow="0 0 10px rgba(0,255,170,.35)"; }
+    else if(cur>i){ d.style.color="#00ffaa"; d.style.opacity=".7"; }
+    else d.style.color="#5d7a72";
+    txt(d,s); stages.appendChild(d);
+    if(i<seq.length-1){ var ar=document.createElement("span"); ar.style.color="#5d7a72"; txt(ar,"\u2192"); stages.appendChild(ar); }
+  });
+  body.appendChild(stages);
+  if(r.reason){ var rs=document.createElement("div"); rs.className="params"; rs.style.marginTop="8px"; rs.style.color="#ff3b6b"; txt(rs,r.reason); body.appendChild(rs); }
+  txt(el("rolloutPhase"),ph+" / share "+(r.share||0)+"%");
+}
+function renderControl(c){
+  el("controlCard").style.display="";
+  var box=el("controlBody"); box.innerHTML="";
+  var up=c.up===true;
+  var d=document.createElement("div"); d.className="chip";
+  var dot=document.createElement("span"); dot.className="dot"+(up?"":" bad"); dot.style.display="inline-block"; dot.style.marginRight="6px";
+  d.appendChild(dot); d.appendChild(document.createTextNode(up?"UPLINK UP":"UPLINK DOWN"));
+  box.appendChild(d);
+  chipIn(box,"mirrored",c.mirrored!=null?c.mirrored:0);
+  chipIn(box,"audit","raft -> merkle/tsa");
+}
+function renderAnchor(a){
+  el("anchorCard").style.display="";
+  var box=el("anchorBody"); box.innerHTML="";
+  chipIn(box,"chain",a.chainVerified?"VERIFIED":"UNVERIFIED");
+  chipIn(box,"anchor .head",a.anchored?"PRESENT":"MISSING");
+  chipIn(box,"head seq",a.headSeq!=null&&a.headSeq>=0?a.headSeq:"-");
+}
 async function poll(){
   try{
     var health = await jget("/health");
     el("connDot").className = "dot"; txt(el("connTxt"), "live");
-    var res = await Promise.allSettled([jget("/cluster"), jget("/agents"), jget("/genome"), jget("/mutations"), jget("/audit"), fetch("/metrics",{headers:hdr()}).then(function(r){return r.ok?r.text():"";})]);
+    var res = await Promise.allSettled([jget("/cluster"), jget("/agents"), jget("/genome"), jget("/mutations"), jget("/audit"), fetch("/metrics",{headers:hdr()}).then(function(r){return r.ok?r.text():"";}), jget("/rollout"), jget("/control"), jget("/anchor")]);
     if(res[0].status==="fulfilled"){ cluster = res[0].value; txt(el("nodeCount"), (cluster.nodes||[]).length); }
     if(res[1].status==="fulfilled"){
       var ag = res[1].value; txt(el("sP99"), ag.p99!=null?ag.p99.toFixed(1):"-"); txt(el("sCells"), ag.cells!=null?ag.cells:"-");
@@ -376,7 +448,10 @@ async function poll(){
     if(res[2].status==="fulfilled") renderGenome(res[2].value);
     if(res[3].status==="fulfilled") renderProps(res[3].value);
     if(res[4].status==="fulfilled") renderAudit(res[4].value);
-    if(res[5].status==="fulfilled") renderSym(parseMetrics(res[5].value));
+    if(res[5].status==="fulfilled"){ METRICS = parseMetrics(res[5].value); renderSym(METRICS); }
+    if(res[6].status==="fulfilled"){ ROLLOUT = res[6].value; renderRollout(ROLLOUT); } else { ROLLOUT = null; el("rolloutCard").style.display="none"; }
+    if(res[7].status==="fulfilled") renderControl(res[7].value); else el("controlCard").style.display="none";
+    if(res[8].status==="fulfilled") renderAnchor(res[8].value); else el("anchorCard").style.display="none";
     var cl = cluster.nodes||[]; var self = cl.filter(function(n){return n.self;})[0];
     txt(el("sMem"), self && self.memFree!=null ? self.memFree : "-");
   }catch(e){
