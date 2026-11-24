@@ -373,6 +373,13 @@ public final class TissueKernel {
                 System.out.println("[API] WebAuthn " + (a.containsKey("webauthn-enforce") ? "ENFORCED" : "optional")
                         + " rpId=" + rp + " creds=" + wa.size() + " origins=" + origins);
             }
+            // 6.4: opt-in read-only views для GUI (rollout/uplink/anchor). Без соответствующих флагов — 404.
+            final RolloutManager sixRollout = rollout;
+            final ControlPlaneUplink sixUplink = uplink;
+            extra.api.enableSixViews(
+                    sixRollout == null ? null : sixRollout::json,
+                    sixUplink == null ? null : sixUplink::json,
+                    fAuditPath == null ? null : () -> anchorJson(fAuditPath, fAuditSecret));
         }
 
         if (a.containsKey("otlp-endpoint")) {
@@ -544,6 +551,23 @@ public final class TissueKernel {
             sb.append('}');
         }
         return sb.append("]}").toString();
+    }
+
+    private static String anchorJson(Path file, String secret) {
+        if (file == null || secret == null || !Files.exists(file)) return "{\"chainVerified\":false,\"anchored\":false}";
+        boolean verified;
+        try { verified = AuditLog.verify(file, secret); } catch (RuntimeException e) { verified = false; }
+        Path head = AuditLog.anchorOf(file);
+        String raw = ""; long seq = -1;
+        try {
+            if (Files.exists(head)) {
+                raw = Files.readString(head, StandardCharsets.UTF_8).trim();
+                int c = raw.indexOf(':');
+                if (c > 0) seq = Long.parseLong(raw.substring(0, c));
+            }
+        } catch (IOException | NumberFormatException e) { raw = ""; }
+        return "{\"chainVerified\":" + verified + ",\"anchored\":" + Files.exists(head)
+                + ",\"headSeq\":" + seq + ",\"head\":" + dev.organism.obs.Json.str(raw) + "}";
     }
 
     private static String auditJson(Path file, String secret) {
