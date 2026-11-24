@@ -113,7 +113,22 @@ public final class WebAuthn {
             throw new SecurityException("webauthn: signature check failed: " + e.getMessage());
         }
         creds.put(credentialId, new Credential(c.id(), c.user(), c.pub(), c.alg(), count));
+        CountHook h = countHook;
+        if (h != null) h.accept(credentialId, count);
         return count;
+    }
+
+    /** 6.6: hook после успешного verifyAssertion - персист signCount (clone-detect переживает рестарт). */
+    public interface CountHook { void accept(String credentialId, long count); }
+    private volatile CountHook countHook;
+    public synchronized WebAuthn onSignCount(CountHook h) { this.countHook = h; return this; }
+
+    /** 6.6: восстановление signCount после рестарта. Rollback самого счётчика запрещён (fail-closed). */
+    public synchronized void restoreSignCount(String credentialId, long count) {
+        Credential c = creds.get(credentialId);
+        if (c == null) throw new IllegalArgumentException("webauthn: unknown credential " + credentialId);
+        if (count < c.signCount()) throw new SecurityException("webauthn: signCount restore rollback");
+        creds.put(credentialId, new Credential(c.id(), c.user(), c.pub(), c.alg(), count));
     }
 
     public static byte[] sha256(byte[] b) {
