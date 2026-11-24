@@ -468,7 +468,26 @@ signCount живёт в памяти процесса: после рестарт
 Браузерный WebAuthn требует secure context: TLS (--tls-keystore) или localhost.
 --webauthn-origins <csv> — явный allow-list origins (дефолт: https/http x rpId/127.0.0.1 x api-port).
 
-## CI (27 шагов)
+## 6.4 GUI: панели шести столпов (opt-in)
+
+Дашборд узла (`/`, `/ui`) показывает подсистемы 6.x в том же неон-терминальном стиле.
+Панели скрыты, пока соответствующая фича не включена на узле — дефолтный вид не меняется.
+
+| Панель | Данные | Когда видна |
+| --- | --- | --- |
+| Rollout pipeline | `GET /rollout` + метрики `organism_rollout_*` | `--rollout` |
+| Control plane | `GET /control` (uplink up/down, mirrored) | `--control-plane` |
+| Audit anchor | `GET /anchor` (chain verified, .head, seq) | `--audit-path` |
+
+- Rollout pipeline: фаза (CANARY/AWAIT_APPROVAL/ROLLOUT/DRAINING/DONE/REJECTED/ROLLED_BACK),
+  impact-бар с разложением step/blast/crit, FOUR-EYES badge при impact>0.5,
+  стадии CANARY 5% -> 25% -> 50% -> 100% -> DRAIN epoch+1, SPRT llr/n, canary vs control p99, drop-rate.
+- Карточки approval queue обогащаются impact-разложением, когда proposal принадлежит активному rollout.
+- API: `GET /rollout /control /anchor` — VIEW-роль, только GET; без opt-in -> 404 (fail-closed).
+- `OrganismApi.enableSixViews(rollout, control, anchor)` — аддитивный хук; замороженные ctor не тронуты.
+- Selftest: `dev.organism.selftest.SixViewsSelfTest` (дефолт 404, VIEW 200, 401 без токена, 405 на POST, маркеры панелей).
+
+## CI (28 шагов)
 Compile -> Launcher -> Bootstrap17 -> Net -> Cell -> Storage -> Organism -> Production -> UI+Genome -> Launcher smoke -> Chaos ->
-**SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E -> Uplink(6.1) -> Rollout(6.2 impact/canary/SPRT/four-eyes/drain) -> Scale(5000 nodes WAN/churn) -> WebAuthnApi(6.3: FIDO2 approve fail-closed + signed genome)**.
+**SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E -> Uplink(6.1) -> Rollout(6.2 impact/canary/SPRT/four-eyes/drain) -> Scale(5000 nodes WAN/churn) -> WebAuthnApi(6.3: FIDO2 approve fail-closed + signed genome) -> SixViews(6.4 GUI/API)**.
 Все новые selftest'ы детерминированные: Raft — in-memory transport с ручными tick; WebAuthn — синтетический EC-ключ; SPRT — seeded Random(2026).
