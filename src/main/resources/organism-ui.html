@@ -90,6 +90,19 @@ button.rej:hover{background:rgba(255,59,107,.2);box-shadow:0 0 14px rgba(255,59,
 ::-webkit-scrollbar{width:7px}::-webkit-scrollbar-thumb{background:rgba(0,255,170,.25);border-radius:4px}
 @media(max-width:1100px){main{grid-template-columns:1fr}.wide{grid-column:span 1}.stats{grid-template-columns:repeat(2,1fr)}}
 </style>
+<style>
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:#050807}
+  ::-webkit-scrollbar-thumb{background:#123a30;border:2px solid #050807;border-radius:6px}
+  ::-webkit-scrollbar-thumb:hover{background:#00ffaa}
+  *{scrollbar-width:thin;scrollbar-color:#123a30 #050807}
+  .opsbtn{background:rgba(0,212,255,.06);border:1px solid #00d4ff;color:#00d4ff;font:inherit;font-size:10px;letter-spacing:.1em;padding:5px 9px;border-radius:4px;cursor:pointer}
+  .opsbtn:hover{box-shadow:0 0 10px rgba(0,212,255,.35)}
+  .opslab{color:#7d9a90;font-size:10px;letter-spacing:.1em;display:inline-flex;align-items:center;gap:6px}
+  .opslab input[type=range]{accent-color:#00ffaa;width:110px}
+  #toast{position:fixed;right:18px;bottom:18px;z-index:99;background:#0a1210;border:1px solid #00ffaa;color:#00ffaa;padding:10px 14px;font-size:11px;letter-spacing:.08em;border-radius:6px;opacity:0;transition:opacity .25s;box-shadow:0 0 18px rgba(0,255,170,.3);max-width:70vw}
+  body.dense .card{padding:10px} body.dense .chip{padding:3px 6px;font-size:9px} body.dense h2{font-size:10px;margin-bottom:6px}
+</style>
 </head>
 <body>
 <div id="login">
@@ -131,6 +144,25 @@ button.rej:hover{background:rgba(255,59,107,.2);box-shadow:0 0 14px rgba(255,59,
     <h2>Human approval queue <span class="tag">risk-gated mutations / ADMIN only</span><input id="waCred" placeholder="FIDO2 cred id (b64url, опц.)" title="credential id не-resident ключа; resident (YubiKey discoverable) работает без него" style="float:right;width:230px;font-size:10px;background:#0a0f14;border:1px solid #1e2a38;color:#9fb4c8;padding:3px 6px;border-radius:4px"></h2>
     <div id="props"><div class="empty">нет ожидающих мутаций</div></div>
   </div>
+  <div class="card full" id="systemsCard">
+    <h2>Subsystems 6.x <span class="tag">live state / click OFF chip = copy enable flags</span></h2>
+    <div id="systemsBody" class="kv"></div>
+  </div>
+  <div class="card full" id="opsCard">
+    <h2>Operations <span class="tag">live controls / admin session</span></h2>
+    <div class="kv" style="align-items:center">
+      <button id="opsPause" class="opsbtn">PAUSE</button>
+      <button id="opsRefresh" class="opsbtn">REFRESH NOW</button>
+      <label class="opslab">risk &ge; <span id="opsRiskVal">0</span>%
+        <input id="opsRisk" type="range" min="0" max="100" value="0" step="5"></label>
+      <select id="opsSort" class="opsbtn"><option value="risk">sort: risk desc</option><option value="id">sort: id asc</option><option value="none">sort: arrival</option></select>
+      <input id="opsSearch" class="opsbtn" type="search" placeholder="search agent / id" style="min-width:150px">
+      <button id="opsDensity" class="opsbtn">DENSITY</button>
+      <button id="opsExport" class="opsbtn">EXPORT AUDIT</button>
+      <button id="opsCopy" class="opsbtn">COPY FULL DEMO CMD</button>
+      <button id="opsReset" class="opsbtn">RESET</button>
+    </div>
+  </div>
   <div class="card full" id="rolloutCard" style="display:none">
     <h2>Rollout pipeline <span class="tag">canary-first / SPRT / epoch handoff</span><span class="tag" id="rolloutPhase"></span></h2>
     <div id="rolloutBody"></div>
@@ -169,7 +201,7 @@ var TOKEN = sessionStorage.getItem("org_token") || "";
 var WA = null;
 var p99hist = [];
 var cluster = {nodes:[]};
-var ROLLOUT = null, METRICS = {};
+var ROLLOUT = null, METRICS = {}, CONTROL = null, ANCHOR = null;
 var anim = 0;
 function hdr(){ var h = {}; if(TOKEN) h["Authorization"] = "Bearer " + TOKEN; return h; }
 function el(id){ return document.getElementById(id); }
@@ -380,6 +412,54 @@ function parseMetrics(text){
   });
   return out;
 }
+function toast(msg, bad){
+  var t = el("toast"); if(!t) return;
+  t.textContent = msg; t.style.borderColor = bad ? "#ff3b6b" : "#00ffaa"; t.style.color = bad ? "#ff3b6b" : "#00ffaa";
+  t.style.opacity = "1"; clearTimeout(t._h); t._h = setTimeout(function(){ t.style.opacity = "0"; }, 2200);
+}
+function copyText(txt){
+  function ok(){ toast("copied: " + txt.slice(0, 48) + (txt.length > 48 ? "..." : "")); }
+  function fallback(){ var ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); ok(); } catch(e){ toast("copy failed", true); } document.body.removeChild(ta); }
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(txt).then(ok, fallback); else fallback();
+}
+var FLAGS = {
+  rollout: "--rollout --approval-risk 0.10 --genome genome.yaml",
+  control: "--control-plane http://127.0.0.1:7470 --control-token <t> --approval-risk 0.10",
+  anchor: "--audit-path audit.jsonl"
+};
+function renderOff(kind){
+  var card = el(kind + "Card"), body = el(kind + "Body");
+  card.style.display = ""; body.innerHTML = "";
+  var chip = document.createElement("div"); chip.className = "chip"; chip.style.cssText = "color:#5d7a72;border-color:#22423a;margin-bottom:8px";
+  chip.textContent = "OFF / opt-in - feature disabled on this node";
+  body.appendChild(chip);
+  var cmd = document.createElement("div"); cmd.className = "params"; cmd.style.cssText = "margin:6px 0";
+  cmd.textContent = "TissueKernel " + FLAGS[kind];
+  body.appendChild(cmd);
+  var btn = document.createElement("button"); btn.textContent = "COPY ENABLE FLAGS";
+  btn.style.cssText = "background:rgba(0,255,170,.08);border:1px solid #00ffaa;color:#00ffaa;font:inherit;font-size:10px;letter-spacing:.12em;padding:5px 10px;cursor:pointer;border-radius:4px";
+  btn.onclick = function(){ copyText("java -cp out dev.organism.net.TissueKernel --port 7101 --cells-port 8101 --api-port 9101 --rbac-file rbac.txt " + FLAGS[kind]); };
+  body.appendChild(btn);
+  if (kind === "rollout") txt(el("rolloutPhase"), "OFF / opt-in");
+}
+function renderSystems(){
+  var box = el("systemsBody"); if(!box) return; box.innerHTML = "";
+  function st(name, on, detail, flag){
+    var d = document.createElement("div"); d.className = "chip";
+    d.style.cssText = on ? "border-color:#00ffaa;color:#00ffaa;box-shadow:0 0 8px rgba(0,255,170,.25)" : "border-color:#22423a;color:#5d7a72";
+    var b = document.createElement("b"); b.textContent = name + " "; d.appendChild(b);
+    d.appendChild(document.createTextNode(on ? "ON" : "OFF"));
+    if (detail) { var s2 = document.createElement("span"); s2.style.cssText = "color:#7d9a90;margin-left:6px"; s2.textContent = detail; d.appendChild(s2); }
+    if (!on && flag) { d.style.cursor = "pointer"; d.title = "copy enable flags"; d.onclick = function(){ copyText(FLAGS[flag]); }; }
+    box.appendChild(d);
+  }
+  st("ROLLOUT 6.2", !!ROLLOUT, ROLLOUT ? (ROLLOUT.phase + " / " + (ROLLOUT.share || 0) + "%") : null, "rollout");
+  st("UPLINK 6.1", !!(CONTROL && CONTROL.up), CONTROL ? ("mirrored " + CONTROL.mirrored) : null, "control");
+  st("ANCHOR", !!(ANCHOR && ANCHOR.chainVerified), ANCHOR ? ("seq " + ANCHOR.headSeq) : null, "anchor");
+  st("OTLP", (METRICS.otlp_push || 0) > 0, "push " + Math.round(METRICS.otlp_push || 0));
+  st("MUTATIONS", (METRICS.mutations || 0) > 0, "total " + Math.round(METRICS.mutations || 0));
+  st("NODES", (cluster.nodes || []).length > 0, "view " + (cluster.nodes || []).length);
+}
 function chipIn(box,l,v){ var d=document.createElement("div"); d.className="chip"; var b=document.createElement("b"); txt(b,l+" "); d.appendChild(b); d.appendChild(document.createTextNode(v)); box.appendChild(d); }
 function renderRollout(r){
   el("rolloutCard").style.display="";
@@ -435,6 +515,7 @@ function renderAnchor(a){
   chipIn(box,"head seq",a.headSeq!=null&&a.headSeq>=0?a.headSeq:"-");
 }
 async function poll(){
+  if (window.PAUSED) return;
   try{
     var health = await jget("/health");
     el("connDot").className = "dot"; txt(el("connTxt"), "live");
@@ -449,9 +530,10 @@ async function poll(){
     if(res[3].status==="fulfilled") renderProps(res[3].value);
     if(res[4].status==="fulfilled") renderAudit(res[4].value);
     if(res[5].status==="fulfilled"){ METRICS = parseMetrics(res[5].value); renderSym(METRICS); }
-    if(res[6].status==="fulfilled"){ ROLLOUT = res[6].value; renderRollout(ROLLOUT); } else { ROLLOUT = null; el("rolloutCard").style.display="none"; }
-    if(res[7].status==="fulfilled") renderControl(res[7].value); else el("controlCard").style.display="none";
-    if(res[8].status==="fulfilled") renderAnchor(res[8].value); else el("anchorCard").style.display="none";
+    if(res[6].status==="fulfilled"){ ROLLOUT = res[6].value; renderRollout(ROLLOUT); } else { ROLLOUT = null; renderOff("rollout"); }
+    if(res[7].status==="fulfilled"){ CONTROL = res[7].value; renderControl(CONTROL); } else { CONTROL = null; renderOff("control"); }
+    if(res[8].status==="fulfilled"){ ANCHOR = res[8].value; renderAnchor(ANCHOR); } else { ANCHOR = null; renderOff("anchor"); }
+    renderSystems();
     var cl = cluster.nodes||[]; var self = cl.filter(function(n){return n.self;})[0];
     txt(el("sMem"), self && self.memFree!=null ? self.memFree : "-");
   }catch(e){
@@ -468,6 +550,42 @@ el("tok").addEventListener("keydown", function(e){ if(e.key==="Enter") el("login
 el("logout").onclick = function(){ TOKEN=""; sessionStorage.removeItem("org_token"); showLogin(""); };
 if(TOKEN){ hideLogin(); txt(el("rolePill"), "role: authenticated"); }
 poll(); setInterval(poll, 2000); loop();
+</script>
+<div id="toast"></div>
+<script>
+(function(){
+  var DEMO = "java -cp out dev.organism.net.TissueKernel --port 7101 --cells-port 8101 --genome genome.yaml --approval-risk 0.10 --rollout --audit-path audit.jsonl --rbac-file rbac.txt --api-port 9101 --control-plane http://127.0.0.1:7470";
+  function $(id){ return document.getElementById(id); }
+  function applyOps(){
+    var box = $("props"); if(!box) return;
+    var min = +($("opsRisk") ? $("opsRisk").value : 0), q = ($("opsSearch") ? $("opsSearch").value : "").toLowerCase();
+    var mode = $("opsSort") ? $("opsSort").value : "risk";
+    var cards = Array.prototype.slice.call(box.children);
+    var info = cards.map(function(c){
+      var ri = c.querySelector(".risk i"); var risk = ri ? parseFloat(ri.style.width) || 0 : 0;
+      var idt = (c.querySelector(".id") ? c.querySelector(".id").textContent : c.textContent).toLowerCase();
+      return { c: c, risk: risk, show: risk >= min && (!q || idt.indexOf(q) >= 0) };
+    });
+    info.forEach(function(it){ var d = it.show ? "" : "none"; if (it.c.style.display !== d) it.c.style.display = d; it.c.dataset.risk = it.risk; });
+    if (mode !== "none") {
+      var sorted = cards.slice().sort(function(x, y){ return mode === "risk" ? (y.dataset.risk - x.dataset.risk) : (x.querySelector(".id") ? x.querySelector(".id").textContent : "").localeCompare(y.querySelector(".id") ? y.querySelector(".id").textContent : ""); });
+      if (sorted.some(function(c, i){ return c !== cards[i]; })) sorted.forEach(function(c){ box.appendChild(c); });
+    }
+  }
+  new MutationObserver(applyOps).observe($("props"), {childList:true, subtree:true, attributes:true, attributeFilter:["style"]});
+  ["opsRisk","opsSort","opsSearch"].forEach(function(id){ var e = $(id); if(e) e.addEventListener("input", function(){ if($("opsRiskVal")) $("opsRiskVal").textContent = $("opsRisk").value; applyOps(); }); });
+  if ($("opsPause")) $("opsPause").onclick = function(){ window.PAUSED = !window.PAUSED; this.textContent = window.PAUSED ? "RESUME" : "PAUSE"; this.style.borderColor = window.PAUSED ? "#ffb020" : "#00d4ff"; this.style.color = window.PAUSED ? "#ffb020" : "#00d4ff"; toast(window.PAUSED ? "polling paused" : "polling resumed"); };
+  if ($("opsRefresh")) $("opsRefresh").onclick = function(){ window.PAUSED = false; if($("opsPause")) $("opsPause").textContent = "PAUSE"; poll(); toast("refreshed"); };
+  if ($("opsDensity")) $("opsDensity").onclick = function(){ document.body.classList.toggle("dense"); toast("density " + (document.body.classList.contains("dense") ? "compact" : "normal")); };
+  if ($("opsReset")) $("opsReset").onclick = function(){ $("opsRisk").value = 0; $("opsRiskVal").textContent = "0"; $("opsSearch").value = ""; $("opsSort").value = "risk"; applyOps(); toast("filters reset"); };
+  if ($("opsCopy")) $("opsCopy").onclick = function(){ copyText(DEMO); };
+  if ($("opsExport")) $("opsExport").onclick = function(){
+    fetch("/audit", {headers: hdr()}).then(function(r){ if(!r.ok) throw new Error(r.status); return r.text(); }).then(function(t){
+      var b = new Blob([t], {type:"application/json"}), u = URL.createObjectURL(b), a = document.createElement("a");
+      a.href = u; a.download = "organism-audit-" + Date.now() + ".json"; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(u); toast("audit exported");
+    }).catch(function(e){ toast("export failed: " + e.message, true); });
+  };
+})();
 </script>
 </body>
 </html>
