@@ -487,6 +487,23 @@ signCount живёт в памяти процесса: после рестарт
 - `OrganismApi.enableSixViews(rollout, control, anchor)` — аддитивный хук; замороженные ctor не тронуты.
 - Selftest: `dev.organism.selftest.SixViewsSelfTest` (дефолт 404, VIEW 200, 401 без токена, 405 на POST, маркеры панелей).
 
+## 6.5 GUI: все видно сразу (default-safe)
+
+Панели 6.4 больше не прячутся при выключенных фичах: они показывают **OFF / opt-in** и точную команду
+включения (кнопка COPY). Матрица **Subsystems 6.x** всегда видна: ROLLOUT/UPLINK/ANCHOR/OTLP/MUTATIONS/NODES,
+клик по OFF-чипу копирует флаги. Панель **Operations**: PAUSE/REFRESH, risk-фильтр, сортировка, поиск,
+DENSITY, EXPORT AUDIT (скачивает /audit), COPY FULL DEMO CMD, RESET - все живое, без модалок.
+
+Чтобы увидеть живой pipeline, а не OFF-состояния:
+
+```
+java -cp out dev.organism.net.TissueKernel --port 7101 --cells-port 8101 --genome genome.yaml \
+  --approval-risk 0.10 --rollout --audit-path audit.jsonl --rbac-file rbac.txt --api-port 9101
+```
+
+Остаточные риски прод-контура (TSA/CP в отдельный контур, signCount-персист, реальный нагрузочный прогон,
+L7-дренаж на балансировщике) - этап харднинга, задокументированы в threat model; дефолтное поведение API не меняется.
+
 ## CI (28 шагов)
 Compile -> Launcher -> Bootstrap17 -> Net -> Cell -> Storage -> Organism -> Production -> UI+Genome -> Launcher smoke -> Chaos ->
 **SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E -> Uplink(6.1) -> Rollout(6.2 impact/canary/SPRT/four-eyes/drain) -> Scale(5000 nodes WAN/churn) -> WebAuthnApi(6.3: FIDO2 approve fail-closed + signed genome) -> SixViews(6.4 GUI/API)**.
