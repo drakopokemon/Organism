@@ -58,6 +58,10 @@ public final class OrganismApi implements AutoCloseable {
     private volatile Set<String> webauthnOrigins = Set.of();
     private volatile RegisterHook webauthnHook;
 
+    // --- 6.4: opt-in read-only views подсистем 6.x (дефолт null -> 404, поведение не меняется) ---
+    private volatile Supplier<String> rolloutJson, controlJson, anchorJson;
+    private volatile boolean sixViews;
+
     /** Callback персиста credential'ов (ядерный --webauthn-creds). */
     public interface RegisterHook { void registered(String credentialId, String user); }
 
@@ -78,6 +82,21 @@ public final class OrganismApi implements AutoCloseable {
         server.createContext("/webauthn/status", ex -> handle(ex, RbacPolicy.Action.VIEW, this::waStatus));
         server.createContext("/webauthn/register", ex -> handle(ex, RbacPolicy.Action.APPROVE, this::waRegister));
         server.createContext("/webauthn/challenge", ex -> handle(ex, RbacPolicy.Action.APPROVE, this::waChallenge));
+        return this;
+    }
+
+    /**
+     * 6.4 GUI/API: read-only снапшоты rollout (6.2), uplink (6.1), audit-anchor.
+     * VIEW-роль, только GET. null-supplier -> 404 (фича выключена на узле).
+     * Без вызова пути /rollout /control /anchor дают 404 как раньше. Повторный вызов запрещён.
+     */
+    public synchronized OrganismApi enableSixViews(Supplier<String> rollout, Supplier<String> control, Supplier<String> anchor) {
+        if (sixViews) throw new IllegalStateException("six views already enabled");
+        sixViews = true;
+        this.rolloutJson = rollout; this.controlJson = control; this.anchorJson = anchor;
+        server.createContext("/rollout", ex -> handle(ex, RbacPolicy.Action.VIEW, this::rollout));
+        server.createContext("/control", ex -> handle(ex, RbacPolicy.Action.VIEW, this::control));
+        server.createContext("/anchor", ex -> handle(ex, RbacPolicy.Action.VIEW, this::anchor));
         return this;
     }
 
@@ -215,6 +234,24 @@ public final class OrganismApi implements AutoCloseable {
     private void audit(HttpExchange ex) throws IOException {
         if (!method(ex, "GET")) return;
         send(ex, 200, auditJson == null ? "{}" : auditJson.get());
+    }
+
+    private void rollout(HttpExchange ex) throws IOException {
+        if (!method(ex, "GET")) return;
+        if (rolloutJson == null) { send(ex, 404, "{\"error\":\"rollout disabled\"}"); return; }
+        send(ex, 200, rolloutJson.get());
+    }
+
+    private void control(HttpExchange ex) throws IOException {
+        if (!method(ex, "GET")) return;
+        if (controlJson == null) { send(ex, 404, "{\"error\":\"control uplink disabled\"}"); return; }
+        send(ex, 200, controlJson.get());
+    }
+
+    private void anchor(HttpExchange ex) throws IOException {
+        if (!method(ex, "GET")) return;
+        if (anchorJson == null) { send(ex, 404, "{\"error\":\"audit disabled\"}"); return; }
+        send(ex, 200, anchorJson.get());
     }
 
     private void ui(HttpExchange ex) throws IOException {
