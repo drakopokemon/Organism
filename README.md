@@ -504,6 +504,16 @@ java -cp out dev.organism.net.TissueKernel --port 7101 --cells-port 8101 --genom
 Остаточные риски прод-контура (TSA/CP в отдельный контур, signCount-персист, реальный нагрузочный прогон,
 L7-дренаж на балансировщике) - этап харднинга, задокументированы в threat model; дефолтное поведение API не меняется.
 
+## 6.6 signCount переживает рестарт (opt-in с --webauthn-creds)
+
+Дыра 6.3 закрыта: счётчик подписей FIDO2 больше не живёт только в памяти процесса.
+После каждого успешного verifyAssertion узел аппендит `cid=count` в `<webauthn-creds>.counts`
+(append-only journal, последняя строка на cid выигрывает). При старте счётчики восстанавливаются
+через `WebAuthn.restoreSignCount` - rollback самого счётчика запрещён (fail-closed).
+Клон ключа, предъявленный после рестарта узла, теперь отвергается так же, как и в пределах сессии.
+Без `--webauthn-creds` поведение прежнее (in-memory). Selftest: `SignCountPersistSelfTest`
+(журнал, restore, клон после рестарта, rollback restore, unknown credential).
+
 ## CI (28 шагов)
 Compile -> Launcher -> Bootstrap17 -> Net -> Cell -> Storage -> Organism -> Production -> UI+Genome -> Launcher smoke -> Chaos ->
 **SupplyChain -> Raft -> Control(envelope/SPRT/WebAuthn/four-eyes) -> DataPlane(epochs) -> Hierarchy(WAN/churn) -> CA/CRL/mTLS -> AuditTrust(Merkle/TSA) -> Supervisor -> ControlPlane E2E -> Uplink(6.1) -> Rollout(6.2 impact/canary/SPRT/four-eyes/drain) -> Scale(5000 nodes WAN/churn) -> WebAuthnApi(6.3: FIDO2 approve fail-closed + signed genome) -> SixViews(6.4 GUI/API)**.
