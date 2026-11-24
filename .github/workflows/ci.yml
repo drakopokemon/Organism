@@ -75,6 +75,8 @@ jobs:
 
       - name: Pillar 1/6 selftest (signed genome artifact + FIDO2 node API)
         run: java -cp out dev.organism.selftest.WebAuthnApiSelfTest
+      - name: Six views selftest (6.4 GUI/API rollout/control/anchor)
+        run: java -cp out dev.organism.selftest.SixViewsSelfTest
 
   windows-smoke:
     runs-on: windows-latest
