@@ -350,6 +350,15 @@ public final class TissueKernel {
                         wa.register(f[0], f[1], cose);
                     }
                 }
+                final Path countsFile = credsFile == null ? null : Path.of(credsFile + ".counts");
+                if (countsFile != null && Files.exists(countsFile)) {
+                    for (String ln : Files.readAllLines(countsFile)) {
+                        int eq = ln.lastIndexOf('=');
+                        if (eq <= 0) continue;
+                        try { wa.restoreSignCount(ln.substring(0, eq), Long.parseLong(ln.substring(eq + 1).trim())); }
+                        catch (RuntimeException e) { System.err.println("[API] signCount restore skipped: " + e.getMessage()); }
+                    }
+                }
                 String rp = a.getOrDefault("webauthn-rp", "localhost");
                 int ap = extra.api.port();
                 Set<String> origins = new LinkedHashSet<>();
@@ -369,6 +378,12 @@ public final class TissueKernel {
                         String line = cid + ":" + user + ":" + Base64.getEncoder().encodeToString(cred.pub().getEncoded()) + "\n";
                         Files.writeString(credsFile, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
                     } catch (IOException e) { System.err.println("[API] webauthn creds persist failed: " + e.getMessage()); }
+                });
+                wa.onSignCount((cid, count) -> {
+                    if (countsFile == null) return;
+                    try {
+                        Files.writeString(countsFile, cid + "=" + count + "\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    } catch (IOException e) { System.err.println("[API] signCount persist failed: " + e.getMessage()); }
                 });
                 System.out.println("[API] WebAuthn " + (a.containsKey("webauthn-enforce") ? "ENFORCED" : "optional")
                         + " rpId=" + rp + " creds=" + wa.size() + " origins=" + origins);
