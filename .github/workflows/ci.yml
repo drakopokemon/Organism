@@ -77,6 +77,8 @@ jobs:
         run: java -cp out dev.organism.selftest.WebAuthnApiSelfTest
       - name: Six views selftest (6.4 GUI/API rollout/control/anchor)
         run: java -cp out dev.organism.selftest.SixViewsSelfTest
+      - name: SignCount persistence selftest (6.6 clone-detect across restart)
+        run: java -cp out dev.organism.selftest.SignCountPersistSelfTest
 
   windows-smoke:
     runs-on: windows-latest
