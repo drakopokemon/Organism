@@ -25,7 +25,7 @@ public final class ControlPlaneUplink implements AutoCloseable {
     private final BiConsumer<String, String> audit;
     private final ObservabilityExporter metrics;
     private final Map<String, String> mirrored = new ConcurrentHashMap<>();
-    private Boolean up;
+    private volatile Boolean up;
 
     public ControlPlaneUplink(ControlPlaneClient client, HumanApprovalGate gate,
                               BiConsumer<String, String> audit, ObservabilityExporter metrics) {
@@ -103,6 +103,12 @@ public final class ControlPlaneUplink implements AutoCloseable {
     }
 
     public int mirroredCount() { return mirrored.size(); }
+
+    /** 6.4: read-only снапшот для GUI/API. up=null до первого poll(). */
+    public synchronized String json() {
+        return "{\"up\":" + (up == null ? "null" : up.booleanValue())
+                + ",\"mirrored\":" + mirrored.size() + "}";
+    }
 
     private void inc(String name) { if (metrics != null) metrics.inc(name, 1); }
     private void audit(String ev, String d) { if (audit != null) audit.accept(ev, d); }
